@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Kiến Trúc Hệ Thống LAN Client (Giám Sát Phòng Thi)",
+    "output": "lan-client-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "bootstrap-flow",
+        "label": "1. Khởi động và Báo danh",
+        "focus": ["client_app", "socket_service", "teacher_server"],
+        "note": "ClientApp định danh máy tính sinh viên và thiết lập kết nối TCP Socket tới Server."
+      },
+      {
+        "id": "monitor-flow",
+        "label": "2. Giám sát cửa sổ vi phạm (1s/lần)",
+        "focus": ["win_api", "active_window_util", "scheduler", "socket_service", "teacher_server"],
+        "note": "ScheduledExecutor quét định kỳ Active Window qua JNA Windows API, so khớp Whitelist và gửi cảnh báo SUSPICIOUS:RED."
+      },
+      {
+        "id": "command-flow",
+        "label": "3. Xử lý lệnh từ Giám thị",
+        "focus": ["teacher_server", "socket_service", "screen_capture_util", "dialog_alert"],
+        "note": "Server gửi lệnh chụp màn hình (Base64 JPEG), gửi thông báo răn đe (ALERT popup) hoặc cập nhật Whitelist."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "win_api",
+      "type": "security",
+      "label": "Windows User32 API",
+      "sublabel": "GetForegroundWindow",
+      "pos": [60, 90],
+      "size": [160, 64],
+      "tag": "Native DLL"
+    },
+    {
+      "id": "client_app",
+      "type": "frontend",
+      "label": "ClientApp (Main)",
+      "sublabel": "Bootstrap & Hostname",
+      "pos": [60, 260],
+      "size": [160, 64]
+    },
+    {
+      "id": "active_window_util",
+      "type": "security",
+      "label": "ActiveWindowUtil",
+      "sublabel": "JNA Native Bridge",
+      "pos": [310, 90],
+      "size": [180, 64]
+    },
+    {
+      "id": "socket_service",
+      "type": "backend",
+      "label": "SocketClientService",
+      "sublabel": "TCP Core & Handshake",
+      "pos": [310, 256],
+      "size": [180, 72]
+    },
+    {
+      "id": "screen_capture_util",
+      "type": "backend",
+      "label": "ScreenCaptureUtil",
+      "sublabel": "Java Robot / JPG",
+      "pos": [310, 430],
+      "size": [180, 64]
+    },
+    {
+      "id": "scheduler",
+      "type": "messagebus",
+      "label": "Behavior Monitor",
+      "sublabel": "ScheduledExecutor (1s)",
+      "pos": [590, 90],
+      "size": [180, 64],
+      "tag": "Background Loop"
+    },
+    {
+      "id": "dialog_alert",
+      "type": "frontend",
+      "label": "JOptionPane Alert",
+      "sublabel": "Cảnh báo Giám thị (Popup)",
+      "pos": [590, 430],
+      "size": [180, 64]
+    },
+    {
+      "id": "teacher_server",
+      "type": "external",
+      "label": "Teacher Server",
+      "sublabel": "Dashboard Giám thị (:9999)",
+      "pos": [880, 256],
+      "size": [190, 72],
+      "tag": "TCP :9999"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Client Node (Máy Tính Sinh Viên)",
+      "wraps": [
+        "win_api",
+        "client_app",
+        "active_window_util",
+        "socket_service",
+        "screen_capture_util",
+        "scheduler",
+        "dialog_alert"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Native OS Hook Layer",
+      "wraps": ["win_api", "active_window_util"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "app_to_service",
+      "from": "client_app",
+      "to": "socket_service",
+      "label": "new & start()",
+      "variant": "emphasis"
+    },
+    {
+      "id": "win_to_util",
+      "from": "win_api",
+      "to": "active_window_util",
+      "label": "GetWindowText",
+      "variant": "security"
+    },
+    {
+      "id": "util_to_scheduler",
+      "from": "active_window_util",
+      "to": "scheduler",
+      "label": "Poll Active Title"
+    },
+    {
+      "id": "scheduler_to_service",
+      "from": "scheduler",
+      "to": "socket_service",
+      "label": "SUSPICIOUS:RED",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "service_to_capture",
+      "from": "socket_service",
+      "to": "screen_capture_util",
+      "label": "captureCurrentScreen()",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 30
+    },
+    {
+      "id": "service_to_dialog",
+      "from": "socket_service",
+      "to": "dialog_alert",
+      "label": "ALERT:<msg>",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "service_to_server",
+      "from": "socket_service",
+      "to": "teacher_server",
+      "label": "TCP Connect & Outbound",
+      "variant": "emphasis"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Khởi động & Báo danh",
+      "items": [
+        "ClientApp tự động lấy Hostname/User làm studentId",
+        "Kết nối TCP Socket đến IP Giám thị cổng 9999",
+        "Gửi gói tin CONNECT:<studentId> ngay khi bắt tay TCP",
+        "Tự động reconnect sau mỗi 5s nếu mất kết nối"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Giám sát ngầm & Cảnh báo",
+      "items": [
+        "JNA User32.dll lấy tiêu đề cửa sổ đang active theo thời gian thực",
+        "Behavior Monitor chạy định kỳ 1 giây/lần kiểm tra Whitelist",
+        "Gửi SUSPICIOUS:RED|<title> về Server nếu mở tab vi phạm"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Thực thi lệnh từ Giám thị",
+      "items": [
+        "UPDATE_WHITELIST: Cập nhật danh sách từ khóa hợp lệ",
+        "CAPTURE_SCREEN: Chụp toàn bộ màn hình qua AWT Robot, nén JPEG Base64",
+        "ALERT: Bật hộp thoại JOptionPane cảnh báo trực tiếp trên màn hình sinh viên"
+      ]
+    }
+  ]
+}

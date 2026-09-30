@@ -1,0 +1,3408 @@
+<files>
+<file name="src\main\java\com\vku\lanmonitor\server\config\AsyncConfig.java">
+<![CDATA[
+package com.vku.lanmonitor.server.config;
+
+public class AsyncConfig {
+
+}
+
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\config\WebConfig.java">
+<![CDATA[
+package com.vku.lanmonitor.server.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.io.File;
+
+@Configuration
+public class WebConfig implements WebMvcConfigurer {
+    @Override
+    public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        // Ánh xạ URL /images/** tới thư mục images/ (lưu ảnh chụp thủ công)
+        String imagesPath = new File("images").getAbsolutePath();
+        registry.addResourceHandler("/images/**")
+                .addResourceLocations("file:" + imagesPath + "/");
+
+        // Ánh xạ URL /temp_images/** tới thư mục temp_images/ (lưu ảnh tự động)
+        String tempImagesPath = new File("temp_images").getAbsolutePath();
+        registry.addResourceHandler("/temp_images/**")
+                .addResourceLocations("file:" + tempImagesPath + "/");
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\config\WebSocketConfig.java">
+<![CDATA[
+package com.vku.lanmonitor.server.config;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
+import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
+import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+
+@Configuration
+@EnableWebSocketMessageBroker
+public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
+
+    @Override
+    public void configureMessageBroker(MessageBrokerRegistry config) {
+        // Kênh để Server đẩy dữ liệu xuống Web Client
+        config.enableSimpleBroker("/topic");
+        // Tiền tố cho các message từ Web Client gửi lên
+        config.setApplicationDestinationPrefixes("/app");
+    }
+
+    @Override
+    public void registerStompEndpoints(StompEndpointRegistry registry) {
+        // Điểm bắt tay WebSocket, hỗ trợ SockJS fallback
+        registry.addEndpoint("/ws").setAllowedOriginPatterns("*").withSockJS();
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\controller\ClientApiController.java">
+<![CDATA[
+package com.vku.lanmonitor.server.controller;
+
+import com.vku.lanmonitor.server.model.ClientSession;
+import com.vku.lanmonitor.server.socket.ClientConnectionHandler;
+import com.vku.lanmonitor.server.socket.ClientManager;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+@Slf4j
+@RestController
+@RequestMapping("/api/clients")
+@RequiredArgsConstructor
+public class ClientApiController {
+
+    private final ClientManager clientManager;
+
+    @GetMapping
+    public ResponseEntity<List<ClientSession>> getClients() {
+        return ResponseEntity.ok(clientManager.getAllClients());
+    }
+
+    @PostMapping("/{clientId}/capture")
+    public ResponseEntity<?> requestScreenshot(@PathVariable String clientId) {
+        ClientConnectionHandler handler = clientManager.getHandler(clientId);
+        if (handler != null) {
+            handler.sendRawCommand("CAPTURE_SCREEN");
+            return ResponseEntity.ok(Map.of("message", "Đã gửi lệnh chụp màn hình"));
+        }
+        return ResponseEntity.badRequest().body("Client không tồn tại hoặc offline");
+    }
+
+    @PostMapping("/{clientId}/alert")
+    public ResponseEntity<?> sendAlert(
+            @PathVariable String clientId,
+            @RequestBody Map<String, String> body) {
+        ClientConnectionHandler handler = clientManager.getHandler(clientId);
+        if (handler != null) {
+            String message = body.getOrDefault("message", "");
+            handler.sendRawCommand("ALERT:" + message);
+            return ResponseEntity.ok(Map.of("message", "Đã gửi cảnh báo thành công"));
+        }
+        return ResponseEntity.badRequest().body("Client không tồn tại hoặc offline");
+    }
+
+    @PostMapping("/{clientId}/save-frame")
+    public ResponseEntity<?> saveLivestreamFrame(@PathVariable String clientId) {
+        ClientConnectionHandler handler = clientManager.getHandler(clientId);
+        if (handler != null) {
+            handler.setCaptureNextFrame(true); // Bật cờ chụp ở Handler
+            return ResponseEntity.ok(Map.of("message", "Đã yêu cầu lưu ảnh Livestream"));
+        }
+        return ResponseEntity.badRequest().body("Client không tồn tại hoặc offline");
+    }
+
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\controller\DashboardController.java">
+<![CDATA[
+package com.vku.lanmonitor.server.controller;
+
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.GetMapping;
+
+@Controller
+public class DashboardController {
+
+    @GetMapping("/")
+    public String index() {
+        return "dashboard";
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\controller\SettingsController.java">
+<![CDATA[
+package com.vku.lanmonitor.server.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vku.lanmonitor.server.socket.ClientManager;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+@Slf4j
+@RestController
+@RequestMapping("/api/settings")
+@RequiredArgsConstructor
+public class SettingsController {
+
+    private final ClientManager clientManager;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final String STORAGE_DIR = "storage";
+    private final String RULES_FILE = STORAGE_DIR + "/exam_rules.json";
+
+    // 1. Lấy danh sách Whitelist hiện tại đang lưu
+    @GetMapping("/whitelist")
+    public ResponseEntity<List<String>> getWhitelist() {
+        try {
+            File file = new File(RULES_FILE);
+            if (file.exists()) {
+                List<String> whitelist = Arrays.asList(objectMapper.readValue(file, String[].class));
+                return ResponseEntity.ok(whitelist);
+            }
+        } catch (Exception e) {
+            log.error("Lỗi đọc file cấu hình: {}", e.getMessage());
+        }
+        // Trả về mặc định nếu chưa có file
+        return ResponseEntity.ok(Arrays.asList("Bài Thi Trắc Nghiệm", "Word", "Calculator", "Excel"));
+    }
+
+    // 2. Cập nhật Whitelist mới từ Web Dashboard
+    @PostMapping("/whitelist")
+    public ResponseEntity<?> updateWhitelist(@RequestBody Map<String, List<String>> body) {
+        List<String> newWhitelist = body.get("whitelist");
+        if (newWhitelist == null || newWhitelist.isEmpty()) {
+            return ResponseEntity.badRequest().body("Danh sách trắng không được để trống");
+        }
+
+        try {
+            // Đảm bảo thư mục storage tồn tại
+            Files.createDirectories(Paths.get(STORAGE_DIR));
+
+            // Lưu danh sách mới vào file JSON
+            objectMapper.writeValue(new File(RULES_FILE), newWhitelist);
+            log.info("Đã lưu cấu hình Whitelist mới vào: {}", RULES_FILE);
+
+            // Chuyển mảng thành chuỗi cách nhau bằng dấu phẩy (VD: "Word,Excel,Calculator")
+            String joinedKeywords = String.join(",", newWhitelist);
+
+            // Phát sóng lệnh xuống toàn bộ máy Client đang bật
+            clientManager.broadcastCommand("UPDATE_WHITELIST:" + joinedKeywords);
+
+            return ResponseEntity.ok(Map.of("message", "Đã cập nhật danh sách và gửi lệnh đến các máy trạm!"));
+        } catch (Exception e) {
+            log.error("Lỗi khi ghi file cấu hình: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("Lỗi Server: " + e.getMessage());
+        }
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\LanServerApplication.java">
+<![CDATA[
+package com.vku.lanmonitor.server;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class LanServerApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(LanServerApplication.class, args);
+	}
+
+}
+
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\model\ClientSession.java">
+<![CDATA[
+package com.vku.lanmonitor.server.model;
+
+import lombok.Data;
+import java.net.Socket;
+
+@Data
+public class ClientSession {
+    private String id; // ID định danh duy nhất (thường lấy theo IP + Port)
+    private String ipAddress; // Địa chỉ IP của máy con
+    private String pcName; // Tên máy tính (Ví dụ: DESKTOP-XYZ)
+
+    // Từ khóa transient giúp bỏ qua biến này nếu bạn muốn chuyển Object thành JSON
+    // đẩy lên Web
+    private transient Socket socket;
+
+    private boolean isOnline;
+    private long connectedAt;
+
+    // Thêm vào ClientSession.java:
+    private transient com.vku.lanmonitor.server.socket.ClientConnectionHandler handler;
+
+    public ClientSession(String ipAddress, Socket socket) {
+        this.id = ipAddress + ":" + socket.getPort();
+        this.ipAddress = ipAddress;
+        this.socket = socket;
+        this.isOnline = true;
+        this.connectedAt = System.currentTimeMillis();
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\model\packet\AlertPacket.java">
+<![CDATA[
+package com.vku.lanmonitor.server.model.packet;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class AlertPacket extends BasePacket {
+    private String title;
+    private String message;
+
+    public AlertPacket(String title, String message) {
+        super("ALERT");
+        this.title = title;
+        this.message = message;
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\model\packet\BasePacket.java">
+<![CDATA[
+package com.vku.lanmonitor.server.model.packet;
+
+import lombok.Data;
+import java.io.Serializable;
+
+@Data
+public abstract class BasePacket implements Serializable {
+    private static final long serialVersionUID = 1L; // Đảm bảo tính nhất quán khi truyền qua mạng
+
+    // Loại gói tin, ví dụ: "ALERT", "COMMAND", "SCREEN_DATA", "METRICS"
+    private String type;
+
+    // Thời gian tạo gói tin
+    private long timestamp;
+
+    public BasePacket(String type) {
+        this.type = type;
+        this.timestamp = System.currentTimeMillis();
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\model\packet\CommandPacket.java">
+<![CDATA[
+package com.vku.lanmonitor.server.model.packet;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class CommandPacket extends BasePacket {
+    private String command; // Ví dụ: "CAPTURE_SCREEN"
+
+    public CommandPacket(String command) {
+        super("COMMAND");
+        this.command = command;
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\model\packet\ScreenDataPacket.java">
+<![CDATA[
+package com.vku.lanmonitor.server.model.packet;
+
+import lombok.Data;
+import lombok.EqualsAndHashCode;
+
+@Data
+@EqualsAndHashCode(callSuper = true)
+public class ScreenDataPacket extends BasePacket {
+    private byte[] imageData; // Dữ liệu ảnh được mã hóa thành mảng byte
+
+    public ScreenDataPacket(byte[] imageData) {
+        super("SCREEN_DATA");
+        this.imageData = imageData;
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\model\SystemMetrics.java">
+<![CDATA[
+package com.vku.lanmonitor.server.model;
+
+import lombok.Data;
+import java.io.Serializable;
+
+@Data
+public class SystemMetrics implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    private double cpuUsage; // Phần trăm sử dụng CPU (ví dụ: 45.5)
+    private long totalRam; // Tổng dung lượng RAM (byte)
+    private long freeRam; // RAM còn trống (byte)
+
+    // Bạn có thể mở rộng thêm phần trăm ổ cứng (Disk) nếu muốn
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\socket\ClientConnectionHandler.java">
+<![CDATA[
+package com.vku.lanmonitor.server.socket;
+
+import com.vku.lanmonitor.server.model.ClientSession;
+import com.vku.lanmonitor.server.websocket.RealtimeNotificationService;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Base64;
+
+@Slf4j
+public class ClientConnectionHandler implements Runnable {
+
+    private final ClientSession session;
+    private final ClientManager clientManager;
+    private final RealtimeNotificationService notificationService;
+    private PrintWriter out;
+    private BufferedReader in;
+
+    private volatile boolean captureNextFrame = false;
+
+    public void setCaptureNextFrame(boolean capture) {
+        this.captureNextFrame = capture;
+    }
+
+    public ClientConnectionHandler(ClientSession session, ClientManager clientManager,
+            RealtimeNotificationService notificationService) {
+        this.session = session;
+        this.clientManager = clientManager;
+        this.notificationService = notificationService;
+    }
+
+    @Override
+    public void run() {
+        Socket socket = session.getSocket();
+        try {
+            out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
+            in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+            notificationService.notifyClientListUpdated(clientManager.getAllClients());
+
+            // Tự động tạo 2 thư mục nếu chưa tồn tại
+            Files.createDirectories(Paths.get("images"));
+            Files.createDirectories(Paths.get("temp_images"));
+
+            // Nạp luật thi ngay khi máy sinh viên vừa kết nối
+            try {
+                java.io.File ruleFile = new java.io.File("storage/exam_rules.json");
+                if (ruleFile.exists()) {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    String[] savedRules = mapper.readValue(ruleFile, String[].class);
+                    String joinedRules = String.join(",", savedRules);
+                    out.println("UPDATE_WHITELIST:" + joinedRules);
+                    log.info("Đã đồng bộ luật thi (Whitelist) cho Client: {}", session.getId());
+                }
+            } catch (Exception e) {
+                log.warn("Chưa có luật thi, Client {} sẽ chờ cấu hình từ Web.", session.getId());
+            }
+
+            String line;
+            while (session.isOnline() && (line = in.readLine()) != null) {
+
+                // 1. LUỒNG LIVESTREAM
+                if (line.startsWith("SCREEN:")) {
+                    String base64Image = line.substring(7);
+                    notificationService.sendScreenshotToWeb(session.getId(), base64Image);
+
+                    // NẾU GIÁM THỊ VỪA BẤM NÚT CHỤP ẢNH -> LƯU LẠI KHUNG HÌNH NÀY
+                    if (captureNextFrame) {
+                        captureNextFrame = false; // Tắt cờ
+                        String fileName = "manual_" + session.getId().replace(":", "_") + "_"
+                                + System.currentTimeMillis() + ".jpg";
+                        Path imagePath = Paths.get("images", fileName);
+                        byte[] imageBytes = Base64.getDecoder().decode(base64Image);
+                        Files.write(imagePath, imageBytes);
+                        log.info("Đã lưu khung hình Livestream thành công: {}", fileName);
+                    }
+                }
+
+                // 2. LUỒNG BẰNG CHỨNG (Giờ chỉ nhận Text để hiển thị, không lưu file)
+                else if (line.startsWith("SUSPICIOUS:")) {
+                    String[] parts = line.substring(11).split("\\|", 2); // Chỉ cắt làm 2 phần
+                    if (parts.length == 2) {
+                        String severity = parts[0];
+                        String tabName = parts[1];
+
+                        // imageUrl truyền vào là null vì không có ảnh
+                        notificationService.sendSuspiciousAlertToWeb(
+                                session.getId(), session.getPcName(), severity, tabName, null);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Client {} đã ngắt kết nối: {}", session.getId(), e.getMessage());
+        } finally {
+            cleanup();
+        }
+    }
+
+    public synchronized void sendRawCommand(String rawCommand) {
+        try {
+            if (out != null) {
+                out.println(rawCommand);
+                log.info("Đã gửi lệnh tới [{}]: {}", session.getId(), rawCommand);
+            }
+        } catch (Exception e) {
+            log.error("Lỗi khi gửi lệnh tới Client {}: {}", session.getId(), e.getMessage());
+        }
+    }
+
+    private void cleanup() {
+        session.setOnline(false);
+        clientManager.removeClient(session.getId());
+        notificationService.notifyClientListUpdated(clientManager.getAllClients());
+        try {
+            if (in != null)
+                in.close();
+            if (out != null)
+                out.close();
+            if (session.getSocket() != null)
+                session.getSocket().close();
+        } catch (Exception ignored) {
+        }
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\socket\ClientManager.java">
+<![CDATA[
+package com.vku.lanmonitor.server.socket;
+
+import com.vku.lanmonitor.server.model.ClientSession;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Slf4j
+@Component
+public class ClientManager {
+
+    private final Map<String, ClientSession> activeClients = new ConcurrentHashMap<>();
+    private final Map<String, ClientConnectionHandler> activeHandlers = new ConcurrentHashMap<>();
+
+    public void addClient(ClientSession session, ClientConnectionHandler handler) {
+        activeClients.put(session.getId(), session);
+        activeHandlers.put(session.getId(), handler);
+        log.info("Đã thêm Client mới: {} - IP: {}. Tổng số Client: {}",
+                session.getId(), session.getIpAddress(), activeClients.size());
+    }
+
+    public void removeClient(String clientId) {
+        activeClients.remove(clientId);
+        activeHandlers.remove(clientId);
+        log.info("Đã ngắt kết nối Client: {}. Tổng số Client hiện tại: {}",
+                clientId, activeClients.size());
+    }
+
+    public ClientSession getClient(String clientId) {
+        return activeClients.get(clientId);
+    }
+
+    public ClientConnectionHandler getHandler(String clientId) {
+        return activeHandlers.get(clientId);
+    }
+
+    public List<ClientSession> getAllClients() {
+        return new ArrayList<>(activeClients.values());
+    }
+
+    public boolean isClientOnline(String clientId) {
+        return activeClients.containsKey(clientId) && activeClients.get(clientId).isOnline();
+    }
+
+    public void broadcastCommand(String rawCommand) {
+        log.info("Phát sóng lệnh tới tất cả Client: {}", rawCommand);
+        for (ClientConnectionHandler handler : activeHandlers.values()) {
+            handler.sendRawCommand(rawCommand);
+        }
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\socket\TcpServerService.java">
+<![CDATA[
+package com.vku.lanmonitor.server.socket;
+
+import com.vku.lanmonitor.server.model.ClientSession;
+import com.vku.lanmonitor.server.websocket.RealtimeNotificationService;
+import jakarta.annotation.PreDestroy;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.stereotype.Service;
+
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class TcpServerService implements CommandLineRunner {
+
+    private final ClientManager clientManager;
+    private final RealtimeNotificationService notificationService;
+
+    // Đọc cổng cấu hình từ application.properties (mặc định 9999)
+    @Value("${lan.socket.port:9999}")
+    private int port;
+
+    private ServerSocket serverSocket;
+    private boolean isRunning = false;
+
+    // ThreadPool để quản lý luồng xử lý riêng cho từng Client kết nối vào
+    private final ExecutorService threadPool = Executors.newCachedThreadPool();
+
+    @Override
+    public void run(String... args) {
+        // Khởi chạy ServerSocket trong một Thread độc lập để không làm treo luồng chính
+        // của Spring Boot
+        new Thread(this::startServer, "TCP-Listener-Thread").start();
+    }
+
+    private void startServer() {
+        try {
+            serverSocket = new ServerSocket(port);
+            isRunning = true;
+            log.info(">>> TCP ServerSocket đã khởi động thành công trên Port: {} <<<", port);
+
+            while (isRunning) {
+                // Chờ và chấp nhận kết nối từ máy Client (hàm này sẽ block cho đến khi có máy
+                // kết nối)
+                Socket clientSocket = serverSocket.accept();
+                String clientIp = clientSocket.getInetAddress().getHostAddress();
+                log.info("Phát hiện kết nối mới từ IP: {}", clientIp);
+
+                // Tạo một phiên kết nối mới
+                ClientSession session = new ClientSession(clientIp, clientSocket);
+                ClientConnectionHandler handler = new ClientConnectionHandler(
+                        session, clientManager, notificationService);
+
+                // Bàn giao kết nối cho ClientConnectionHandler xử lý trong ThreadPool
+                clientManager.addClient(session, handler);
+                threadPool.execute(handler);
+            }
+        } catch (IOException e) {
+            if (isRunning) {
+                log.error("Lỗi trong quá trình hoạt động của TCP ServerSocket: {}", e.getMessage());
+            }
+        }
+    }
+
+    @PreDestroy
+    public void stopServer() {
+        isRunning = false;
+        try {
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                serverSocket.close();
+                log.info("Đã đóng TCP ServerSocket an toàn.");
+            }
+            threadPool.shutdown();
+        } catch (IOException e) {
+            log.error("Lỗi khi đóng TCP ServerSocket: {}", e.getMessage());
+        }
+    }
+}
+]]>
+</file>
+<file name="src\main\java\com\vku\lanmonitor\server\websocket\RealtimeNotificationService.java">
+<![CDATA[
+package com.vku.lanmonitor.server.websocket;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.stereotype.Service;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class RealtimeNotificationService {
+
+    private final SimpMessagingTemplate messagingTemplate;
+
+    /**
+     * Đẩy thông báo cập nhật danh sách Client online lên Web
+     */
+    public void notifyClientListUpdated(Object clients) {
+        messagingTemplate.convertAndSend("/topic/clients", clients);
+        log.info("Đã đẩy danh sách Client mới lên Web qua WebSocket.");
+    }
+
+    /**
+     * Đẩy ảnh chụp màn hình nhận được từ máy con lên Web
+     */
+    public void sendScreenshotToWeb(String clientId, String base64Image) {
+        messagingTemplate.convertAndSend("/topic/screenshot/" + clientId, base64Image);
+        log.info("Đã đẩy ảnh chụp màn hình của client [{}] lên Web.", clientId);
+    }
+
+    public void sendSuspiciousAlertToWeb(String clientId, String pcName, String severity, String tabName,
+            String imageUrl) {
+        java.util.Map<String, String> alertData = new java.util.HashMap<>();
+        alertData.put("clientId", clientId);
+        alertData.put("pcName", pcName != null ? pcName : "Máy Trạm");
+        alertData.put("severity", severity);
+        alertData.put("tabName", tabName);
+        alertData.put("imageUrl", imageUrl); // Link ảnh để Web load
+
+        // Đẩy dữ liệu vào kênh /topic/alerts
+        messagingTemplate.convertAndSend("/topic/alerts", alertData);
+        log.info(">>> Đã đẩy cảnh báo {} của {} lên Web.", severity, clientId);
+    }
+}
+]]>
+</file>
+<file name="src\main\resources\application.properties">
+<![CDATA[
+spring.application.name=lan-server
+
+]]>
+</file>
+<file name="src\main\resources\static\css\quiz.css">
+<![CDATA[
+/* Container cấu trúc thẻ */
+.quiz-card {
+  position: relative;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.04);
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.quiz-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* Icon trạng thái ở góc phải trên */
+.quiz-status-icon {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 20px;
+}
+
+/* Ghi đè định dạng nút bấm bên trong thẻ để đảm bảo không bị vỡ */
+.quiz-card .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.quiz-card .btn:hover {
+  transform: translateY(-2px);
+}
+/* Kiểu chữ tiêu đề thẻ */
+.quiz-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 8px;
+  padding-right: 30px; /* Tránh đè lên icon status */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Badge loại bài kiểm tra */
+.quiz-type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 20px;
+  background-color: #f1f5f9;
+  color: #475569;
+  margin-bottom: 20px;
+  width: fit-content;
+}
+
+/* Nhóm nút bấm */
+.quiz-actions {
+  margin-top: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* CSS cho danh sách ảnh đính kèm */
+.attached-img-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.attached-img-item:last-child {
+  border-bottom: none;
+}
+
+.attached-img-name {
+  font-weight: 500;
+  color: #334155;
+  font-size: 14px;
+}
+
+.attached-img-delete {
+  color: #ef4444;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  font-size: 18px;
+}
+
+.attached-img-delete:hover {
+  background: #fee2e2;
+}
+/* --- HIỆU ỨNG KÉO THẢ ĐỒNG BỘ VỚI NOTES --- */
+.quiz-card,
+.topic-card {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
+  cursor: grab;
+}
+.quiz-card:active,
+.topic-card:active {
+  cursor: grabbing;
+}
+.col.dragging-card .quiz-card,
+.col.dragging-card .topic-card {
+  border: 2px dashed #3b82f6 !important;
+  background-color: #f0f9ff !important;
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+.col.drag-over-card .quiz-card,
+.col.drag-over-card .topic-card {
+  border-right: 4px solid #3b82f6 !important;
+  transform: scale(1.02);
+}
+
+]]>
+</file>
+<file name="src\main\resources\static\css\quiz_result.css">
+<![CDATA[
+.tracking-wider {
+  letter-spacing: 0.05em;
+}
+
+.fw-black {
+  font-weight: 900;
+}
+
+/* Kế thừa giao diện Option Box từ take_quiz.css nhưng vô hiệu hóa click */
+.result-option-box {
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 20px;
+  font-weight: 500;
+  color: #334155;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background-color: #ffffff;
+}
+
+.result-option-box.selected {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  color: #1d4ed8;
+}
+
+.result-option-box.correct-answer {
+  border-color: #10b981 !important;
+  background-color: #ecfdf5 !important;
+}
+
+.result-option-box.wrong-answer {
+  border-color: #ef4444 !important;
+  background-color: #fef2f2 !important;
+  color: #b91c1c !important;
+}
+
+.explanation-card {
+  background: #f8fafc;
+  border-left: 4px solid #3b82f6;
+}
+/* Cố định Header trên cùng màn hình */
+.quiz-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 1050; /* Đảm bảo luôn nằm trên các nội dung khác */
+}
+
+/* Đẩy phần nội dung chính xuống dưới để không bị Header đè lên */
+#quiz-workspace main,
+body > main.container {
+  margin-top: 75px;
+}
+
+]]>
+</file>
+<file name="src\main\resources\static\css\style.css">
+<![CDATA[
+/* Tùy biến thanh cuộn mỏng */
+.custom-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: #0f172a;
+  border-radius: 4px;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Hiệu ứng chọn Client item */
+.client-item {
+  transition: all 0.2s ease-in-out;
+}
+.client-item.active {
+  border-color: #6366f1;
+  background-color: rgba(99, 102, 241, 0.1);
+}
+
+]]>
+</file>
+<file name="src\main\resources\static\css\take_quiz.css">
+<![CDATA[
+/* Các thuộc tính cũ bạn giữ nguyên */
+body {
+  background-color: #f8f9fa;
+  min-height: 100vh;
+}
+.start-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(236, 243, 251, 0.95);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.4s ease;
+}
+.flag-btn:hover {
+  background-color: #f1f5f9;
+  border-color: #94a3b8;
+}
+.flag-btn.flagged .flag-icon,
+.flag-btn.flagged span {
+  color: #ef4444 !important;
+}
+.question-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.q-nav-box {
+  background-color: #ffffff;
+  border: 1.5px solid #cbd5e1;
+  color: #334155;
+  border-radius: 8px;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 15px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+}
+.q-nav-box:hover {
+  background-color: #f1f5f9;
+}
+.q-nav-box.active {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  color: #2563eb;
+}
+.q-nav-box.answered {
+  background-color: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+/* Định dạng cho khung tròn đỏ chứa icon cờ (Mặc định ẩn) */
+.q-nav-box .flag-indicator {
+  display: none;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  background-color: #ef4444; /* Màu nền đỏ */
+  color: #ffffff; /* Màu icon trắng */
+  border-radius: 50%;
+  border: 2px solid #ffffff; /* Viền trắng để tách biệt với ô */
+  font-size: 10px; /* Kích thước icon lá cờ */
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+/* Chỉ hiển thị khung đỏ + icon cờ khi ô đó bị gắn cờ */
+.q-nav-box.flagged .flag-indicator {
+  display: flex;
+}
+
+/* THÊM MỚI: CSS cho khối lựa chọn ABCD */
+.option-box {
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 14px 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+  color: #334155;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.option-box:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+}
+
+.option-box.selected {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+  color: #1d4ed8;
+}
+
+.option-prefix {
+  font-weight: 700;
+  min-width: 24px;
+}
+
+/* CSS định dạng hình ảnh đính kèm trong câu hỏi */
+.question-attached-img {
+  max-width: 100%;
+  max-height: 400px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  background-color: #f8fafc;
+  padding: 4px;
+}
+
+]]>
+</file>
+<file name="src\main\resources\static\js\app.js">
+<![CDATA[
+let stompClient = null;
+let selectedClientId = null;
+let currentSubscriptions = {};
+
+// 1. Kết nối STOMP WebSocket
+function connectWebSocket() {
+  const socket = new SockJS("/ws");
+  stompClient = Stomp.over(socket);
+  stompClient.debug = null; // Tắt bớt log debug STOMP trong console
+
+  stompClient.connect(
+    {},
+    function () {
+      const statusEl = document.getElementById("socket-status");
+      statusEl.innerText = "WebSocket Đã Kết Nối";
+      statusEl.className =
+        "px-3 py-1 text-xs rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+
+      // Lắng nghe cập nhật danh sách máy con
+      stompClient.subscribe("/topic/clients", function (message) {
+        const clients = JSON.parse(message.body);
+        renderClientList(clients);
+      });
+
+      // Lắng nghe cảnh báo gian lận (ĐÃ ĐƯỢC ĐƯA VÀO ĐÚNG VỊ TRÍ)
+      stompClient.subscribe("/topic/alerts", function (message) {
+        const alertData = JSON.parse(message.body);
+        addSuspiciousAlert(alertData.pcName, alertData.tabName);
+
+        const clientCard = document.querySelector(
+          `.client-item[onclick*="${alertData.clientId}"]`,
+        );
+        if (clientCard) {
+          clientCard.classList.remove("border-slate-700");
+          clientCard.classList.add("border-rose-500", "animate-pulse");
+          setTimeout(() => {
+            clientCard.classList.remove("border-rose-500", "animate-pulse");
+            clientCard.classList.add("border-slate-700");
+          }, 5000);
+        }
+      });
+
+      // Tải danh sách khởi đầu qua API
+      fetchInitialClients();
+    },
+    function () {
+      const statusEl = document.getElementById("socket-status");
+      statusEl.innerText = "Mất kết nối WebSocket!";
+      statusEl.className =
+        "px-3 py-1 text-xs rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20";
+      setTimeout(connectWebSocket, 4000); // Thử kết nối lại sau 4s
+    },
+  );
+}
+
+// 2. Tải danh sách Client qua REST API
+async function fetchInitialClients() {
+  try {
+    const res = await fetch("/api/clients");
+    const clients = await res.json();
+    renderClientList(clients);
+  } catch (e) {
+    console.error("Lỗi khi tải danh sách client:", e);
+  }
+}
+
+// 3. Render danh sách Client sang HTML
+function renderClientList(clients) {
+  const container = document.getElementById("client-grid");
+  const countTag = document.getElementById("client-count");
+
+  countTag.innerText = `${clients.length} online`;
+
+  if (clients.length === 0) {
+    container.innerHTML = `<div class="col-span-full text-center py-10 text-slate-500 text-sm">Chưa có máy nào kết nối...</div>`;
+    selectedClientId = null;
+    updateSelectedTag();
+    return;
+  }
+
+  container.innerHTML = "";
+  clients.forEach((c) => {
+    const isActive = c.id === selectedClientId;
+    const examStatus = "Đang làm bài";
+    const timeLeft = "45:00";
+
+    const item = document.createElement("div");
+    item.className = `client-item flex flex-col justify-between p-4 rounded-xl border ${isActive ? "border-indigo-500 bg-indigo-500/10" : "border-slate-700 bg-slate-900/60 hover:border-slate-500"} transition-all`;
+
+    item.innerHTML = `
+            <div class="flex items-center justify-between mb-3 border-b border-slate-700/50 pb-2">
+                <div class="flex items-center space-x-2 cursor-pointer" onclick="selectClient('${c.id}')">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span class="font-bold text-sm text-slate-200">${c.pcName || "Máy Trạm"}</span>
+                </div>
+                <span class="text-xs font-mono text-slate-400">${c.ipAddress}</span>
+            </div>
+            <div class="space-y-1.5 mb-4 cursor-pointer" onclick="selectClient('${c.id}')">
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-400">Trạng thái:</span>
+                    <span class="text-emerald-400 font-medium">${examStatus}</span>
+                </div>
+                <div class="flex justify-between text-xs">
+                    <span class="text-slate-400">Thời gian:</span>
+                    <span class="text-amber-400 font-mono">${timeLeft}</span>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mt-auto">
+                <button onclick="openLiveStream('${c.id}', '${c.pcName || "Máy Trạm"}')" class="bg-indigo-600/80 hover:bg-indigo-500 text-white text-xs py-1.5 rounded-md transition flex items-center justify-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    Live Stream
+                </button>
+                <button class="bg-rose-600/80 hover:bg-rose-500 text-white text-xs py-1.5 rounded-md transition flex items-center justify-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8V7z"></path></svg>
+                    Khóa Bài
+                </button>
+            </div>
+        `;
+    container.appendChild(item);
+  });
+
+  if (!selectedClientId && clients.length > 0) {
+    selectClient(clients[0].id);
+  }
+}
+
+// 4. Chọn một máy
+function selectClient(clientId) {
+  selectedClientId = clientId;
+  updateSelectedTag();
+
+  document.querySelectorAll(".client-item").forEach((el) => {
+    if (el.innerHTML.includes(clientId)) {
+      el.classList.add("border-indigo-500", "bg-indigo-500/10");
+      el.classList.remove("border-slate-700", "bg-slate-900/60");
+    } else {
+      el.classList.remove("border-indigo-500", "bg-indigo-500/10");
+      el.classList.add("border-slate-700", "bg-slate-900/60");
+    }
+  });
+}
+
+function updateSelectedTag() {
+  const tag = document.getElementById("selected-client-tag");
+  tag.innerText = selectedClientId
+    ? `Đang điều khiển: ${selectedClientId}`
+    : "Chưa chọn máy trạm";
+}
+
+// Hàm gửi cảnh báo khả nghi
+function addSuspiciousAlert(machineName, tabName) {
+  const feedContainer = document.getElementById("alert-feed");
+  const now = new Date();
+  const timeString = now.toLocaleTimeString("vi-VN", { hour12: false });
+
+  const alertBox = document.createElement("div");
+  alertBox.className =
+    "bg-slate-900 border-l-4 border-rose-500 rounded-r-lg p-3 shadow-md animate-[pulse_0.5s_ease-in-out]";
+
+  alertBox.innerHTML = `
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-[11px] font-mono text-slate-400">${timeString}</span>
+            <button class="text-slate-500 hover:text-indigo-400 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+            </button>
+        </div>
+        <div>
+            <span class="font-bold text-sm text-slate-200">${machineName}</span>
+            <p class="text-xs text-rose-400 mt-0.5 line-clamp-2">Đang mở: ${tabName}</p>
+        </div>
+    `;
+  feedContainer.prepend(alertBox);
+}
+
+// ================= HỆ THỐNG LIVESTREAM 4 FPS =================
+let liveStreamInterval = null;
+let activeLiveStreamClient = null;
+
+function openLiveStream(clientId, pcName) {
+  activeLiveStreamClient = clientId;
+  document.getElementById("livestream-title").innerText = pcName;
+
+  const modal = document.getElementById("livestream-modal");
+  modal.classList.remove("hidden");
+  modal.classList.add("flex");
+
+  const topic = `/topic/screenshot/${clientId}`;
+  if (!currentSubscriptions[topic] && stompClient) {
+    currentSubscriptions[topic] = stompClient.subscribe(topic, function (msg) {
+      if (activeLiveStreamClient === clientId) {
+        document.getElementById("livestream-img").src =
+          "data:image/jpeg;base64," + msg.body;
+      }
+    });
+  }
+
+  if (liveStreamInterval) clearInterval(liveStreamInterval);
+  liveStreamInterval = setInterval(() => {
+    fetch(`/api/clients/${encodeURIComponent(clientId)}/capture`, {
+      method: "POST",
+    }).catch((e) => console.log("Lỗi Livestream: ", e));
+  }, 250);
+}
+
+function closeLiveStream() {
+  if (liveStreamInterval) {
+    clearInterval(liveStreamInterval);
+    liveStreamInterval = null;
+  }
+  activeLiveStreamClient = null;
+  const modal = document.getElementById("livestream-modal");
+  modal.classList.add("hidden");
+  modal.classList.remove("flex");
+  document.getElementById("livestream-img").src = "";
+}
+
+// Hàm yêu cầu Server lưu lại 1 khung hình đang Livestream
+async function captureLivestreamFrame() {
+  if (!activeLiveStreamClient) return;
+  try {
+    const res = await fetch(
+      `/api/clients/${encodeURIComponent(activeLiveStreamClient)}/save-frame`,
+      {
+        method: "POST",
+      },
+    );
+    if (res.ok) {
+      // Hiển thị thông báo nhỏ trên màn hình
+      alert(
+        "📸 Đã chụp và lưu thành công tấm ảnh minh chứng vào thư mục 'images' trên Server!",
+      );
+    } else {
+      alert("Lỗi: Không thể chụp ảnh lúc này.");
+    }
+  } catch (e) {
+    console.error("Lỗi khi gọi API chụp ảnh:", e);
+  }
+}
+
+// ================= HỆ THỐNG CẤU HÌNH WHITELIST =================
+async function openWhitelistModal() {
+  document.getElementById("whitelist-modal").classList.remove("hidden");
+  document.getElementById("whitelist-modal").classList.add("flex");
+
+  // Tải cấu hình hiện tại từ Server
+  try {
+    const res = await fetch("/api/settings/whitelist");
+    const data = await res.json();
+    document.getElementById("whitelist-input").value = data.join(", ");
+  } catch (e) {
+    console.error("Lỗi tải Whitelist:", e);
+  }
+}
+
+function closeWhitelistModal() {
+  document.getElementById("whitelist-modal").classList.add("hidden");
+  document.getElementById("whitelist-modal").classList.remove("flex");
+}
+
+async function saveWhitelist() {
+  const inputStr = document.getElementById("whitelist-input").value;
+  // Cắt chuỗi bằng dấu phẩy, loại bỏ khoảng trắng thừa
+  const whitelistArray = inputStr
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (whitelistArray.length === 0) {
+    alert("Vui lòng nhập ít nhất một từ khóa hợp lệ!");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/settings/whitelist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ whitelist: whitelistArray }),
+    });
+
+    if (res.ok) {
+      alert(
+        "✅ Đã lưu cấu hình và cập nhật luật mới xuống tất cả máy tính đang thi!",
+      );
+      closeWhitelistModal();
+    }
+  } catch (e) {
+    alert("Lỗi khi lưu cấu hình: " + e.message);
+  }
+}
+
+// Khởi chạy khi load trang
+document.addEventListener("DOMContentLoaded", connectWebSocket);
+
+]]>
+</file>
+<file name="src\main\resources\static\js\quiz.js">
+<![CDATA[
+(function () {
+  const STORAGE_QUIZZES_KEY = "study-space.quizzes.v1";
+
+  const QUIZ_PROMPT_TEMPLATE = `Bạn đóng vai trò là một chuyên gia xử lý dữ liệu giáo dục và là một học giả uyên bác. Hãy phân tích file tài liệu đính kèm (Word/TXT) chứa các câu hỏi trắc nghiệm và trích xuất toàn bộ nội dung thành một mảng JSON thuần túy (Pure JSON Array).
+
+NHỮNG YÊU CẦU BẮT BUỘC (TUYỆT ĐỐI TUÂN THỦ):
+
+1. ĐỊNH DẠNG ĐẦU RA: 
+- Chỉ trả về duy nhất mảng JSON, bắt đầu bằng "[" và kết thúc bằng "]". 
+- Tuyệt đối không thêm bất kỳ văn bản, lời chào hỏi, lời giải thích, hay thẻ markdown (như \`\`\`json) nào ở trước hoặc sau dữ liệu JSON.
+
+2. CHUẨN HÓA NỘI DUNG CÂU HỎI VÀ ĐÁP ÁN: 
+- Bỏ các tiền tố thứ tự ở câu hỏi (VD: xóa "Câu 1:", "Câu 2:", "1.").
+- Bỏ các tiền tố ở đáp án (VD: xóa "A.", "B.", "C.", "D.").
+- Giữ nguyên nội dung gốc của câu hỏi và các lựa chọn.
+
+3. XÁC ĐỊNH ĐÁP ÁN ĐÚNG (correctAnswer):
+- BƯỚC 1 - TÌM KIẾM: Kiểm tra kỹ định dạng. Đáp án đúng thường được tô màu, In đậm, Gạch chân, có dấu (*) hoặc có bảng đáp án ở cuối. Nếu có, hãy sử dụng.
+- BƯỚC 2 - TỰ SUY LUẬN (QUAN TRỌNG): Nếu câu hỏi KHÔNG CÓ bất kỳ dấu hiệu đáp án nào, bạn PHẢI vận dụng kiến thức chuyên môn để tự tìm ra đáp án đúng nhất. Điền chữ cái tương ứng (A, B, C hoặc D) vào trường "correctAnswer". Tuyệt đối không được để trống.
+
+4. LỜI GIẢI THÍCH (explanation): 
+- BƯỚC 1: Nếu file có sẵn lời giải thích, hãy trích xuất.
+- BƯỚC 2 - TỰ BIÊN SOẠN: Nếu file không có, bạn PHẢI tự viết một lời giải thích ngắn gọn, súc tích (2-3 câu) để lập luận tại sao đáp án đó đúng.
+
+CẤU TRÚC JSON MẪU BẮT BUỘC:
+[
+  {
+    "question": "Nội dung câu hỏi",
+    "options": {
+      "A": "Đáp án 1",
+      "B": "Đáp án 2",
+      "C": "Đáp án 3",
+      "D": "Đáp án 4"
+    },
+    "correctAnswer": "A",
+    "explanation": "Lời giải thích"
+  }
+]`;
+
+  let quizzes = [];
+  let currentEditId = null;
+  let currentEditTime = 15;
+  let currentAttachedImages = []; // Mảng chứa ảnh đính kèm
+  let isEditModalOpen = false;
+
+  document.addEventListener("DOMContentLoaded", function () {
+    // Lấy URL API hỗ trợ test trên Go Live (5500)
+    function getApiUrl(endpoint) {
+      if (
+        window.location.port !== "8000" &&
+        window.location.hostname === "127.0.0.1"
+      ) {
+        return `http://127.0.0.1:8000${endpoint}`;
+      }
+      return endpoint;
+    }
+
+    // HÀM QUẢN LÝ MODAL XÁC NHẬN CHO QUIZ
+    function showConfirmModal(message, onConfirm) {
+      const modalEl = document.getElementById("confirmModal");
+      if (!modalEl) return;
+      const modalInstance =
+        bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+      document.getElementById("confirmModalMessage").innerText = message;
+
+      const btnConfirm = document.getElementById("confirmModalBtn");
+      const newBtnConfirm = btnConfirm.cloneNode(true);
+      btnConfirm.parentNode.replaceChild(newBtnConfirm, btnConfirm);
+
+      newBtnConfirm.addEventListener("click", () => {
+        if (onConfirm) onConfirm();
+        modalInstance.hide();
+      });
+
+      modalInstance.show();
+    }
+
+    const els = {
+      list: document.getElementById("quizzes-list"),
+      emptyDisplay: document.getElementById("quizzes-empty"),
+      addModal: new bootstrap.Modal(document.getElementById("addQuizModal")),
+      quizNameInput: document.getElementById("quiz-name-input"),
+      quizTypeSelect: document.getElementById("quiz-type-select"),
+      btnCreate: document.getElementById("btn-create-quiz"),
+      btnCopyPrompt: document.getElementById("btn-copy-prompt"),
+      editModalEl: document.getElementById("editQuizModal"),
+      editModal: new bootstrap.Modal(document.getElementById("editQuizModal")),
+      editNameInput: document.getElementById("edit-quiz-name-input"),
+      editDataInput: document.getElementById("edit-quiz-data"),
+      btnSaveData: document.getElementById("btn-save-quiz-data"),
+      btnTimeUp: document.getElementById("btn-time-up"),
+      btnTimeDown: document.getElementById("btn-time-down"),
+      timeDisplay: document.getElementById("quiz-time-display"),
+      randomSwitch: document.getElementById("quiz-random-switch"),
+      questionImageSelect: document.getElementById("question-image-select"),
+      fileUploadInput: document.getElementById("quiz-image-upload"),
+      btnBrowseImage: document.getElementById("btn-browse-image"),
+      attachedImagesList: document.getElementById("attached-images-list"),
+    };
+
+    // ĐÃ SỬA: Đọc Quiz từ 2 file riêng biệt trên Backend
+    async function loadQuizzesFromAPI() {
+      try {
+        const resBefore = await fetch(getApiUrl("/api/quizzes/before"));
+        const dataBefore = await resBefore.json();
+
+        const resAfter = await fetch(getApiUrl("/api/quizzes/after"));
+        const dataAfter = await resAfter.json();
+
+        quizzes = [...(dataBefore.data || []), ...(dataAfter.data || [])];
+      } catch (error) {
+        console.warn(
+          "Lỗi tải Quiz từ Backend, dùng LocalStorage dự phòng",
+          error,
+        );
+        const raw = localStorage.getItem(STORAGE_QUIZZES_KEY);
+        quizzes = raw ? JSON.parse(raw) : [];
+      }
+      localStorage.setItem(STORAGE_QUIZZES_KEY, JSON.stringify(quizzes));
+    }
+
+    // ĐÃ SỬA: Tách và Lưu Quiz xuống 2 file riêng biệt trên Backend
+    async function saveQuizzesToAPI() {
+      localStorage.setItem(STORAGE_QUIZZES_KEY, JSON.stringify(quizzes));
+
+      // Phân tách mảng
+      const beforeQuizzes = quizzes.filter((q) => q.type === "immediate");
+      const afterQuizzes = quizzes.filter((q) => q.type === "delayed");
+
+      try {
+        await fetch(getApiUrl("/api/quizzes/before"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quizzes: beforeQuizzes }),
+        });
+
+        await fetch(getApiUrl("/api/quizzes/after"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quizzes: afterQuizzes }),
+        });
+        console.log("[STORAGE] Đã lưu Quizzes vào 2 file Before và After!");
+      } catch (error) {
+        console.error("Lỗi khi lưu Quiz API:", error);
+      }
+    }
+
+    async function initApp() {
+      await loadQuizzesFromAPI();
+      renderQuizzes();
+      bindEvents(els);
+    }
+
+    function bindEvents(els) {
+      els.editModalEl.addEventListener("show.bs.modal", () => {
+        isEditModalOpen = true;
+      });
+      els.editModalEl.addEventListener("hidden.bs.modal", () => {
+        isEditModalOpen = false;
+      });
+
+      els.btnTimeUp.addEventListener("click", function () {
+        currentEditTime += 5;
+        els.timeDisplay.textContent = `${currentEditTime} phút`;
+      });
+
+      els.btnTimeDown.addEventListener("click", function () {
+        if (currentEditTime > 5) {
+          currentEditTime -= 5;
+          els.timeDisplay.textContent = `${currentEditTime} phút`;
+        } else {
+          if (window.notify)
+            window.notify("Thời gian làm bài tối thiểu là 5 phút!", "warning");
+        }
+      });
+
+      els.btnCopyPrompt.addEventListener("click", function () {
+        navigator.clipboard.writeText(QUIZ_PROMPT_TEMPLATE).then(() => {
+          if (window.notify)
+            window.notify(
+              "Đã sao chép prompt trắc nghiệm thành công!",
+              "success",
+            );
+        });
+      });
+
+      els.btnCreate.addEventListener("click", function () {
+        const name = els.quizNameInput.value.trim();
+        const type = els.quizTypeSelect.value;
+        if (!name) {
+          if (window.notify)
+            window.notify("Vui lòng nhập tên bài kiểm tra!", "warning");
+          return;
+        }
+
+        const newQuiz = {
+          id: Date.now(),
+          name: name,
+          type: type,
+          data: null,
+          timeLimit: 15,
+          isRandom: false,
+          images: [],
+          isValid: false,
+          createdAt: Date.now(),
+        };
+
+        quizzes.unshift(newQuiz);
+        saveQuizzesToAPI(); // Dùng API
+        renderQuizzes();
+
+        els.quizNameInput.value = "";
+        els.addModal.hide();
+        if (window.notify)
+          window.notify("Đã thêm bài kiểm tra mới!", "success");
+      });
+
+      // --- LOGIC ĐÍNH KÈM ẢNH CHUẨN HÓA MÃ TÊN ---
+      function getBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = (error) => reject(error);
+        });
+      }
+
+      els.editDataInput.addEventListener("input", function () {
+        updateQuestionSelect();
+      });
+
+      els.btnBrowseImage.addEventListener("click", function () {
+        els.fileUploadInput.click();
+      });
+
+      els.fileUploadInput.addEventListener("change", async function (e) {
+        const qIndex = els.questionImageSelect.value;
+        if (qIndex === "") {
+          if (window.notify)
+            window.notify(
+              "Vui lòng chọn Câu hỏi ở Select box trước!",
+              "warning",
+            );
+          this.value = "";
+          return;
+        }
+
+        for (let file of Array.from(this.files)) {
+          try {
+            const base64String = await getBase64(file);
+            // Lấy đuôi file thực tế (jpg, png, webp...)
+            const ext = file.name.split(".").pop();
+            const uniqueFileName = `img_${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
+
+            currentAttachedImages.push({
+              qIndex: parseInt(qIndex),
+              fileName: uniqueFileName,
+              dataUrl: base64String,
+            });
+          } catch (err) {
+            console.error("Lỗi đọc file:", err);
+          }
+        }
+        renderAttachedImages();
+        this.value = "";
+      });
+
+      document.addEventListener("paste", async function (e) {
+        if (!isEditModalOpen) return;
+
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        const qIndex = els.questionImageSelect.value;
+        let hasImage = false;
+
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.kind === "file" && item.type.includes("image/")) {
+            hasImage = true;
+            if (qIndex === "") {
+              if (window.notify)
+                window.notify(
+                  "Vui lòng chọn Câu hỏi trước khi dán ảnh!",
+                  "warning",
+                );
+              return;
+            }
+
+            const file = item.getAsFile();
+            const uniqueFileName = `img_paste_${Date.now()}_${Math.floor(Math.random() * 1000)}.png`;
+
+            try {
+              const base64String = await getBase64(file);
+              currentAttachedImages.push({
+                qIndex: parseInt(qIndex),
+                fileName: uniqueFileName,
+                dataUrl: base64String,
+              });
+            } catch (err) {
+              console.error("Lỗi đọc file dán:", err);
+            }
+          }
+        }
+
+        if (hasImage) {
+          renderAttachedImages();
+          if (window.notify) window.notify("Đã dán ảnh thành công!", "success");
+        }
+      });
+
+      els.btnSaveData.addEventListener("click", function () {
+        if (!currentEditId) return;
+
+        const newName = els.editNameInput.value.trim();
+        if (!newName) {
+          if (window.notify)
+            window.notify("Tên bài kiểm tra không được để trống!", "warning");
+          return;
+        }
+
+        const rawData = els.editDataInput.value.trim();
+        let parsedData = null;
+        let isValid = false;
+
+        if (rawData) {
+          try {
+            parsedData = JSON.parse(rawData);
+            isValid = validateQuizData(parsedData);
+            if (!isValid) throw new Error("JSON không đúng cấu trúc.");
+          } catch (error) {
+            if (window.notify)
+              window.notify("Dữ liệu JSON lỗi hoặc sai cấu trúc!", "error");
+            return;
+          }
+        }
+
+        const quizIndex = quizzes.findIndex((q) => q.id === currentEditId);
+        if (quizIndex > -1) {
+          quizzes[quizIndex].name = newName;
+          quizzes[quizIndex].data = parsedData;
+          quizzes[quizIndex].timeLimit = currentEditTime;
+          quizzes[quizIndex].isRandom = els.randomSwitch.checked;
+          quizzes[quizIndex].images = currentAttachedImages;
+          quizzes[quizIndex].isValid = isValid;
+
+          saveQuizzesToAPI(); // Dùng API
+          renderQuizzes();
+          els.editModal.hide();
+          if (window.notify)
+            window.notify("Đã lưu dữ liệu bài kiểm tra!", "success");
+        }
+      });
+    }
+
+    function updateQuestionSelect() {
+      els.questionImageSelect.innerHTML =
+        '<option value="" disabled selected>-- Chọn câu --</option>';
+      try {
+        const data = JSON.parse(els.editDataInput.value);
+        if (Array.isArray(data)) {
+          data.forEach((_, idx) => {
+            const opt = document.createElement("option");
+            opt.value = idx;
+            opt.textContent = `Câu ${idx + 1}`;
+            els.questionImageSelect.appendChild(opt);
+          });
+        }
+      } catch (e) {}
+    }
+
+    function renderAttachedImages() {
+      els.attachedImagesList.innerHTML = "";
+      if (currentAttachedImages.length === 0) {
+        els.attachedImagesList.classList.add("d-none");
+        return;
+      }
+
+      els.attachedImagesList.classList.remove("d-none");
+      const sortedImages = [...currentAttachedImages].sort(
+        (a, b) => a.qIndex - b.qIndex,
+      );
+
+      sortedImages.forEach((img) => {
+        const li = document.createElement("li");
+        li.className = "attached-img-item";
+        li.innerHTML = `
+          <span class="attached-img-name">Câu ${img.qIndex + 1} - ${img.fileName}</span>
+          <i class='bx bx-trash attached-img-delete' title="Xóa ảnh" style="cursor:pointer; color:#ef4444;"></i>
+        `;
+
+        li.querySelector(".attached-img-delete").addEventListener(
+          "click",
+          async function () {
+            const originalIdx = currentAttachedImages.findIndex(
+              (i) => i.qIndex === img.qIndex && i.fileName === img.fileName,
+            );
+
+            if (originalIdx > -1) {
+              const imgToDelete = currentAttachedImages[originalIdx];
+
+              // 1. Luôn gọi API xóa tệp vật lý tương ứng với tên file ảnh này
+              if (imgToDelete && imgToDelete.fileName) {
+                try {
+                  await fetch(
+                    getApiUrl(`/api/quizzes/image/${imgToDelete.fileName}`),
+                    { method: "DELETE" },
+                  );
+                } catch (error) {
+                  console.error("Lỗi xóa file ảnh vật lý:", error);
+                }
+              }
+
+              // 2. Loại bỏ tấm ảnh này ra khỏi mảng đính kèm
+              currentAttachedImages.splice(originalIdx, 1);
+              renderAttachedImages();
+
+              // 3. Lưu mảng cập nhật mới lên Backend
+              const quizIndex = quizzes.findIndex(
+                (q) => q.id === currentEditId,
+              );
+              if (quizIndex > -1) {
+                quizzes[quizIndex].images = currentAttachedImages;
+                saveQuizzesToAPI();
+              }
+            }
+          },
+        );
+        els.attachedImagesList.appendChild(li);
+      });
+    }
+
+    function validateQuizData(data) {
+      if (!Array.isArray(data) || data.length === 0) return false;
+      return data.every((item) => {
+        return (
+          item.question &&
+          item.options &&
+          typeof item.options === "object" &&
+          item.correctAnswer
+        );
+      });
+    }
+
+    function renderQuizzes() {
+      els.list.innerHTML = "";
+      if (quizzes.length === 0) {
+        els.emptyDisplay.classList.remove("d-none");
+        return;
+      }
+
+      els.emptyDisplay.classList.add("d-none");
+
+      quizzes.forEach((quiz, idx) => {
+        const col = document.createElement("div");
+        col.className = "col position-relative";
+        col.draggable = true;
+        col.dataset.index = idx;
+        const borderColor = quiz.type === "immediate" ? "#3b82f6" : "#10b981";
+        const bgGradient =
+          quiz.type === "immediate"
+            ? "linear-gradient(to right, #eff6ff, #ffffff)"
+            : "linear-gradient(to right, #ecfdf5, #ffffff)";
+        const typeLabel =
+          quiz.type === "immediate"
+            ? "Trắc nghiệm có đáp án ngay"
+            : "Trắc nghiệm có đáp án sau cùng";
+        const iconHtml = quiz.isValid
+          ? `<i class="bx bxs-check-circle text-success quiz-status-icon" title="Đã sẵn sàng"></i>`
+          : `<i class="bx bxs-x-circle text-danger quiz-status-icon" title="Chưa có dữ liệu"></i>`;
+        const qCount = quiz.isValid
+          ? `${quiz.data.length} câu hỏi`
+          : "0 câu hỏi";
+
+        col.innerHTML = `
+          <div class="quiz-card" style="border-left: 5px solid ${borderColor}; background: ${bgGradient};">
+            ${iconHtml}
+            <h5 class="fw-bold mb-3 text-dark text-truncate" title="${escapeHtml(quiz.name)}" style="padding-right: 25px;">
+              ${escapeHtml(quiz.name)}
+            </h5>
+            <p class="text-muted small mb-2 d-flex align-items-center">
+              <i class="bx ${quiz.type === "immediate" ? "bx-check-double" : "bx-time"} me-2 fs-6" style="color: ${borderColor}"></i>
+              <span class="fw-semibold" style="color: #475569;">${typeLabel}</span>
+            </p>
+            <p class="text-muted small mb-4 d-flex align-items-center">
+              <i class="bx bx-collection me-2 fs-6"></i> ${qCount}
+            </p>
+            <div class="d-flex flex-wrap gap-2 mt-auto">
+              <button class="btn btn-sm rounded-pill btn-start shadow-sm" style="background-color: ${quiz.isValid ? borderColor : "#cbd5e1"}; color: white; border: none;" ${quiz.isValid ? "" : "disabled"}>
+                <i class="bx bx-play fs-5 me-1"></i> Bắt đầu
+              </button>
+              <button class="btn btn-outline-secondary btn-sm rounded-pill btn-edit shadow-sm">
+                <i class="bx bx-edit fs-6 me-1"></i> Dán/Sửa
+              </button>
+              <button class="btn btn-outline-danger btn-sm rounded-pill btn-delete bg-white shadow-sm" style="padding: 6px 12px;">
+                <i class="bx bx-trash fs-6"></i>
+              </button>
+            </div>
+          </div>
+        `;
+
+        col
+          .querySelector(".btn-edit")
+          .addEventListener("click", () => openEditModal(quiz));
+        col
+          .querySelector(".btn-delete")
+          .addEventListener("click", () => deleteQuiz(quiz.id));
+        col.querySelector(".btn-start").addEventListener("click", () => {
+          window.location.href = `components/Quiz_html/take_quiz.html?id=${quiz.id}`;
+        });
+
+        els.list.appendChild(col);
+      });
+
+      if (window.initDragAndDropList) {
+        window.initDragAndDropList(
+          "#quizzes-list",
+          quizzes,
+          function (updatedData) {
+            saveQuizzesToAPI(); // Dùng API
+            renderQuizzes();
+            if (window.notify)
+              notify("Đã cập nhật vị trí bộ đề trắc nghiệm!", "success");
+          },
+        );
+      }
+    }
+
+    function openEditModal(quiz) {
+      currentEditId = quiz.id;
+      els.editNameInput.value = quiz.name;
+
+      const timeSection = document.getElementById("time-config-section");
+      if (quiz.type === "immediate") {
+        timeSection.classList.add("d-none");
+      } else {
+        timeSection.classList.remove("d-none");
+      }
+
+      currentEditTime = quiz.timeLimit || 15;
+      els.timeDisplay.textContent = `${currentEditTime} phút`;
+      els.randomSwitch.checked = quiz.isRandom || false;
+
+      els.editDataInput.value = quiz.data
+        ? JSON.stringify(quiz.data, null, 2)
+        : "";
+      updateQuestionSelect();
+
+      currentAttachedImages = quiz.images ? [...quiz.images] : [];
+      renderAttachedImages();
+
+      els.editModal.show();
+    }
+
+    function deleteQuiz(id) {
+      showConfirmModal(
+        "Bạn có chắc chắn muốn xóa bài kiểm tra này? Tất cả hình ảnh đi kèm sẽ bị xóa.",
+        async () => {
+          const targetQuiz = quizzes.find((q) => q.id === id);
+
+          // Nếu bộ đề có danh sách ảnh đính kèm
+          if (
+            targetQuiz &&
+            Array.isArray(targetQuiz.images) &&
+            targetQuiz.images.length > 0
+          ) {
+            // Lặp qua tất cả ảnh và phát lệnh xóa song song
+            const deleteRequests = targetQuiz.images.map((img) => {
+              if (img.fileName) {
+                return fetch(getApiUrl(`/api/quizzes/image/${img.fileName}`), {
+                  method: "DELETE",
+                }).catch((err) =>
+                  console.error(`Không thể xóa ảnh ${img.fileName}:`, err),
+                );
+              }
+              return Promise.resolve();
+            });
+
+            // Đợi tất cả request xóa ảnh hoàn tất
+            await Promise.all(deleteRequests);
+          }
+
+          // Xóa Quiz khỏi mảng chính và cập nhật file JSON
+          quizzes = quizzes.filter((q) => q.id !== id);
+          saveQuizzesToAPI();
+          renderQuizzes();
+          if (window.notify)
+            window.notify(
+              "Đã xóa bài kiểm tra và toàn bộ ảnh liên quan!",
+              "success",
+            );
+        },
+      );
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    // Khởi động
+    initApp();
+  });
+})();
+
+]]>
+</file>
+<file name="src\main\resources\static\js\quiz_result.js">
+<![CDATA[
+document.addEventListener("DOMContentLoaded", function () {
+  const resultDataString = sessionStorage.getItem("current_quiz_result");
+
+  if (!resultDataString) {
+    alert("Không tìm thấy kết quả làm bài!");
+    window.location.href = "../../quiz.html";
+    return;
+  }
+
+  const resultData = JSON.parse(resultDataString);
+  const questions = resultData.questions;
+  const userAnswers = resultData.userAnswers;
+  const totalQuestions = questions.length;
+
+  // 1. TÍNH TOÁN ĐIỂM SỐ
+  let correctCount = 0;
+  for (let i = 0; i < totalQuestions; i++) {
+    if (userAnswers[i] === questions[i].correctAnswer) {
+      correctCount++;
+    }
+  }
+
+  const scorePerQuestion = 10 / totalQuestions;
+  const totalScore = (correctCount * scorePerQuestion)
+    .toFixed(2)
+    .replace(".", ",");
+
+  // Định dạng thời gian (Giây -> Phút:Giây)
+  let m = Math.floor(resultData.timeSpent / 60);
+  let s = resultData.timeSpent % 60;
+  const formattedTime = `${m < 10 ? "0" + m : m} phút ${s < 10 ? "0" + s : s} giây`;
+
+  // Cập nhật Header thống kê
+  document.getElementById("res-quiz-name").textContent = resultData.quizName;
+  document.getElementById("res-score").textContent = `${totalScore} / 10`;
+  document.getElementById("res-time").textContent = formattedTime;
+
+  // 2. RENDER CHI TIẾT CÂU HỎI
+  const detailsList = document.getElementById("result-details-list");
+
+  questions.forEach((q, index) => {
+    const userAnswer = userAnswers[index];
+    const isAnswered = userAnswer !== null;
+    const isCorrect = userAnswer === q.correctAnswer;
+
+    // A. Xử lý ảnh đính kèm (dựa vào originalIndex)
+    let imagesHtml = "";
+    if (resultData.images && resultData.images.length > 0) {
+      const matchedImages = resultData.images.filter(
+        (img) => img.qIndex === q.originalIndex,
+      );
+      if (matchedImages.length > 0) {
+        imagesHtml = `<div class="d-flex flex-column gap-3 my-4">`;
+        matchedImages.forEach((img) => {
+          imagesHtml += `<img src="${img.dataUrl}" alt="${img.fileName}" class="question-attached-img">`;
+        });
+        imagesHtml += `</div>`;
+      }
+    }
+
+    // B. Xử lý phần đáp án (A, B, C, D)
+    let optionsHtml = '<div class="d-flex flex-column gap-3 mb-4">';
+    for (const [key, value] of Object.entries(q.options)) {
+      const isThisUserChoice = userAnswer === key;
+      const isThisCorrectChoice = q.correctAnswer === key;
+
+      let boxClass = "result-option-box";
+      let iconHtml = "";
+
+      // Xác định màu khung và icon
+      if (isThisCorrectChoice) {
+        // Luôn làm nổi bật đáp án đúng bằng màu xanh
+        boxClass += " correct-answer";
+        iconHtml = `<i class='bx bxs-check-circle text-success fs-4 ms-auto align-self-center'></i>`;
+      } else if (isThisUserChoice && !isThisCorrectChoice) {
+        // Nêu chọn sai, bôi đỏ khung đó
+        boxClass += " wrong-answer";
+        iconHtml = `<i class='bx bxs-x-circle text-danger fs-4 ms-auto align-self-center'></i>`;
+      } else if (isThisUserChoice) {
+        // Nêu chọn, nhưng không đúng không sai (chỉ để back-up logic)
+        boxClass += " selected";
+      }
+
+      optionsHtml += `
+        <div class="${boxClass}">
+          <span class="option-prefix">${key}.</span> 
+          <span>${value}</span>
+          ${iconHtml}
+        </div>
+      `;
+    }
+    optionsHtml += "</div>";
+
+    // C. Cấu trúc tổng thể của 1 Thẻ Câu Hỏi
+    const cardHtml = `
+      <div class="card border-0 shadow-sm rounded-4 p-4 mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 class="fw-bold m-0">Câu ${index + 1}</h5>
+          ${!isAnswered ? '<span class="badge bg-warning text-dark py-2 px-3 rounded-pill">Chưa làm</span>' : ""}
+        </div>
+        
+        <p class="fs-6 text-dark" style="line-height: 1.6;">${q.question}</p>
+        
+        ${imagesHtml}
+        ${optionsHtml}
+
+        <div class="explanation-card p-3 rounded-3 mt-2">
+          <h6 class="fw-bold text-dark mb-2"><i class='bx bx-bulb text-warning me-1'></i> Giải thích đáp án:</h6>
+          <p class="text-muted mb-0" style="line-height: 1.6; font-size: 16px">
+            ${q.explanation || "Không có giải thích chi tiết cho câu hỏi này."}
+          </p>
+        </div>
+      </div>
+    `;
+
+    detailsList.insertAdjacentHTML("beforeend", cardHtml);
+  });
+});
+
+]]>
+</file>
+<file name="src\main\resources\static\js\take_quiz.js">
+<![CDATA[
+document.addEventListener("DOMContentLoaded", function () {
+  // HÀM QUẢN LÝ MODAL XÁC NHẬN
+  function showConfirmModal(message, onConfirm) {
+    const modalEl = document.getElementById("confirmModal");
+    if (!modalEl) return;
+    const modalInstance =
+      bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+    document.getElementById("confirmModalMessage").innerText = message;
+
+    const btnConfirm = document.getElementById("confirmModalBtn");
+    const newBtnConfirm = btnConfirm.cloneNode(true);
+    btnConfirm.parentNode.replaceChild(newBtnConfirm, btnConfirm);
+
+    newBtnConfirm.addEventListener("click", () => {
+      if (onConfirm) onConfirm();
+      modalInstance.hide();
+    });
+
+    modalInstance.show();
+  }
+  // Lấy ID bài thi từ URL
+  const urlParams = new URLSearchParams(window.location.search);
+  const quizId = urlParams.get("id");
+
+  // DOM Elements
+  const btnStart = document.getElementById("btn-start-quiz-now");
+  const overlay = document.getElementById("start-overlay");
+  const workspace = document.getElementById("quiz-workspace");
+  const btnBack = document.getElementById("btn-back-quiz");
+  const gridContainer = document.getElementById("question-navigation-grid");
+  const timerContainer = document.getElementById("timer-container");
+
+  const btnPrev = document.getElementById("btn-prev-question");
+  const btnNext = document.getElementById("btn-next-question");
+  const btnFinish = document.getElementById("btn-finish-quiz");
+  const btnToggleAnswer = document.getElementById("btn-toggle-answer");
+  const explanationBox = document.getElementById("explanation-box");
+  const flagBtn = document.querySelector(".flag-btn");
+
+  let timerInterval;
+  let currentQuiz = null;
+  let currentIndex = 0;
+  let userAnswers = [];
+  let flaggedQuestions = [];
+  let startTime = Date.now();
+
+  // BIẾN TOÀN CỤC ĐẾM CHUỖI ĐÚNG LIÊN TIẾP
+  let consecutiveCorrect = 0;
+
+  // HÀM PHÁT ÂM THANH CHUNG
+  function playSound(filename) {
+    const audio = new Audio("../../assets/sounds/" + filename);
+    audio.play().catch((e) => console.log("Lỗi phát âm thanh:", e));
+  }
+
+  // Hàm khởi tạo lấy dữ liệu từ LocalStorage
+  function fetchQuizData() {
+    const quizzes =
+      JSON.parse(localStorage.getItem("study-space.quizzes.v1")) || [];
+    currentQuiz = quizzes.find((q) => q.id == quizId);
+
+    if (!currentQuiz || !currentQuiz.data) {
+      if (window.notify)
+        window.notify("Không tìm thấy dữ liệu bài kiểm tra!", "error");
+      setTimeout(() => {
+        window.location.href = "../../quiz.html";
+      }, 5000);
+      return;
+    }
+
+    currentQuiz.data.forEach((q, idx) => {
+      q.originalIndex = idx;
+    });
+
+    if (currentQuiz.isRandom) {
+      for (let i = currentQuiz.data.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [currentQuiz.data[i], currentQuiz.data[j]] = [
+          currentQuiz.data[j],
+          currentQuiz.data[i],
+        ];
+      }
+    }
+
+    document.getElementById("quiz-title-display").textContent =
+      currentQuiz.name;
+
+    const totalQuestions = currentQuiz.data.length;
+    let scorePerQuestion = Math.round((10 / totalQuestions) * 100) / 100;
+    let formattedScore = scorePerQuestion.toString().replace(".", ",");
+    document.getElementById("question-score-display").textContent =
+      `${formattedScore} điểm`;
+
+    userAnswers = new Array(currentQuiz.data.length).fill(null);
+    flaggedQuestions = new Array(currentQuiz.data.length).fill(false);
+
+    if (currentQuiz.type === "immediate") {
+      timerContainer.classList.add("d-none");
+      document
+        .getElementById("immediate-feedback-area")
+        .classList.remove("d-none");
+    }
+
+    renderQuestionGrid(currentQuiz.data.length);
+    renderQuestion(0);
+
+    startTime = Date.now();
+  }
+
+  // ===== HÀM ĐẾM NGƯỢC THỜI GIAN =====
+  function startTimer(durationInSeconds) {
+    let timer = durationInSeconds;
+    const display = document.getElementById("timer-display");
+
+    function updateDisplay() {
+      let minutes = parseInt(timer / 60, 10);
+      let seconds = parseInt(timer % 60, 10);
+      minutes = minutes < 10 ? "0" + minutes : minutes;
+      seconds = seconds < 10 ? "0" + seconds : seconds;
+      display.textContent = minutes + ":" + seconds;
+    }
+
+    updateDisplay();
+    clearInterval(timerInterval);
+
+    timerInterval = setInterval(function () {
+      timer--;
+      updateDisplay();
+
+      if (timer <= 0) {
+        clearInterval(timerInterval);
+        playSound("alarm.mp3"); // Phát âm thanh báo hết giờ
+
+        if (window.notify)
+          window.notify(
+            "Đã hết thời gian làm bài! Hệ thống tự động nộp bài.",
+            "warning",
+          );
+        setTimeout(() => {
+          submitQuiz();
+        }, 5000);
+      }
+    }, 1000);
+  }
+
+  // Bắt đầu làm bài
+  btnStart.addEventListener("click", function () {
+    const elem = document.documentElement;
+    if (elem.requestFullscreen) {
+      elem
+        .requestFullscreen()
+        .catch((err) => console.log("Không bật được fullscreen", err));
+    }
+    overlay.classList.add("d-none");
+    workspace.classList.remove("d-none");
+
+    fetchQuizData();
+
+    if (currentQuiz && currentQuiz.type !== "immediate") {
+      startTimer(currentQuiz.timeLimit * 60);
+    }
+  });
+
+  // Nút quay lại
+  btnBack.addEventListener("click", function () {
+    if (document.fullscreenElement) document.exitFullscreen();
+    showConfirmModal(
+      "Bạn có chắc chắn muốn thoát? Kết quả bài làm sẽ không được lưu.",
+      () => {
+        clearInterval(timerInterval);
+        window.location.href = "../../quiz.html";
+      },
+    );
+  });
+
+  // Render câu hỏi hiện tại
+  function renderQuestion(index) {
+    currentIndex = index;
+    const qData = currentQuiz.data[index];
+
+    document.getElementById("current-q-num").textContent = index + 1;
+    document.getElementById("question-text").innerHTML = qData.question;
+
+    const imagesArea = document.getElementById("question-images-area");
+    imagesArea.innerHTML = "";
+
+    const allImages = currentQuiz.images || [];
+    let originalIndex = index;
+
+    if (currentQuiz.isRandom) {
+      const quizzesFromStorage =
+        JSON.parse(localStorage.getItem("study-space.quizzes.v1")) || [];
+      const originalQuiz = quizzesFromStorage.find((q) => q.id == quizId);
+      if (originalQuiz && originalQuiz.data) {
+        originalIndex = originalQuiz.data.findIndex(
+          (q) => q.question === qData.question,
+        );
+      }
+    }
+
+    const matchedImages = allImages.filter(
+      (img) => img.qIndex === originalIndex,
+    );
+
+    if (matchedImages.length > 0) {
+      matchedImages.forEach((img) => {
+        const imgElement = document.createElement("img");
+        imgElement.src = img.dataUrl;
+        imgElement.className = "question-attached-img";
+        imgElement.alt = img.fileName;
+        imagesArea.appendChild(imgElement);
+      });
+    }
+
+    if (flaggedQuestions[index]) {
+      flagBtn.classList.add("flagged");
+    } else {
+      flagBtn.classList.remove("flagged");
+    }
+
+    const optionsArea = document.getElementById("options-area");
+    optionsArea.innerHTML = "";
+
+    for (const [key, value] of Object.entries(qData.options)) {
+      const optDiv = document.createElement("div");
+
+      const isSelected = userAnswers[index] === key;
+      optDiv.className = `option-box ${isSelected ? "selected" : ""}`;
+
+      let iconHtml = "";
+      if (isSelected && currentQuiz.type === "immediate") {
+        const isCorrect = key === qData.correctAnswer;
+        const iconClass = isCorrect
+          ? "bx bxs-check-circle text-success"
+          : "bx bxs-x-circle text-danger";
+        iconHtml = `<i class='${iconClass} fs-4 ms-auto align-self-center status-icon'></i>`;
+      }
+
+      optDiv.innerHTML = `<span class="option-prefix">${key}.</span> <span>${value}</span> ${iconHtml}`;
+
+      optDiv.addEventListener("click", function () {
+        // Nếu click lại đúng đáp án đang chọn thì bỏ qua (không spam âm thanh)
+        if (userAnswers[index] === key) return;
+
+        document.querySelectorAll(".option-box").forEach((el) => {
+          el.classList.remove("selected");
+          const oldIcon = el.querySelector(".status-icon");
+          if (oldIcon) oldIcon.remove();
+        });
+
+        this.classList.add("selected");
+
+        // ===== XỬ LÝ ÂM THANH THEO LOẠI BÀI KIỂM TRA =====
+        if (currentQuiz.type === "immediate") {
+          const isCorrect = key === qData.correctAnswer;
+
+          if (isCorrect) {
+            consecutiveCorrect++; // Tăng số câu đúng liên tiếp
+            // Chỉ phát duy nhất 1 loại âm thanh cho mọi câu trả lời đúng
+            playSound("correct.mp3");
+
+            // Cập nhật UI icon xanh
+            this.insertAdjacentHTML(
+              "beforeend",
+              `<i class='bx bxs-check-circle text-success fs-4 ms-auto align-self-center status-icon'></i>`,
+            );
+          } else {
+            consecutiveCorrect = 0; // Reset số câu đúng nếu làm sai
+            playSound("duolingo-wrong.mp3");
+
+            // Cập nhật UI icon đỏ
+            this.insertAdjacentHTML(
+              "beforeend",
+              `<i class='bx bxs-x-circle text-danger fs-4 ms-auto align-self-center status-icon'></i>`,
+            );
+          }
+        } else {
+          // Bài kiểm tra có đáp án sau cùng (Chế độ Delayed)
+          playSound("bumble.mp3");
+        }
+
+        // Lưu đáp án và đánh dấu trên Navigation Grid
+        userAnswers[index] = key;
+        const gridBox = document.querySelector(
+          `.q-nav-box[data-idx="${index}"]`,
+        );
+        if (gridBox) gridBox.classList.add("answered");
+        updateCompletedCount();
+      });
+
+      optionsArea.appendChild(optDiv);
+    }
+
+    explanationBox.classList.add("d-none");
+    btnToggleAnswer.innerHTML = '<i class="bx bx-show me-1"></i> Xem đáp án';
+    document.getElementById("correct-answer-text").textContent =
+      qData.correctAnswer;
+    document.getElementById("explanation-text").innerHTML =
+      qData.explanation || "Không có giải thích chi tiết.";
+
+    updateNavButtons();
+    updateGridActiveState();
+  }
+
+  btnToggleAnswer.addEventListener("click", function () {
+    if (explanationBox.classList.contains("d-none")) {
+      explanationBox.classList.remove("d-none");
+      this.innerHTML = '<i class="bx bx-hide me-1"></i> Đóng đáp án';
+    } else {
+      explanationBox.classList.add("d-none");
+      this.innerHTML = '<i class="bx bx-show me-1"></i> Xem đáp án';
+    }
+  });
+
+  btnPrev.addEventListener("click", () => {
+    if (currentIndex > 0) renderQuestion(currentIndex - 1);
+  });
+  btnNext.addEventListener("click", () => {
+    if (currentIndex < currentQuiz.data.length - 1)
+      renderQuestion(currentIndex + 1);
+  });
+
+  function updateNavButtons() {
+    btnPrev.disabled = currentIndex === 0;
+    btnNext.disabled = currentIndex === currentQuiz.data.length - 1;
+
+    btnPrev.classList.toggle("opacity-50", currentIndex === 0);
+    btnNext.classList.toggle(
+      "opacity-50",
+      currentIndex === currentQuiz.data.length - 1,
+    );
+  }
+
+  function renderQuestionGrid(total) {
+    gridContainer.innerHTML = "";
+    for (let i = 0; i < total; i++) {
+      const box = document.createElement("div");
+      box.className = "q-nav-box";
+      box.dataset.idx = i;
+
+      box.innerHTML = `
+        <span>${i + 1}</span>
+        <i class='bx bxs-flag flag-indicator'></i>
+      `;
+
+      box.addEventListener("click", function () {
+        renderQuestion(i);
+      });
+
+      gridContainer.appendChild(box);
+    }
+    updateCompletedCount();
+  }
+
+  function updateGridActiveState() {
+    document
+      .querySelectorAll(".q-nav-box")
+      .forEach((el) => el.classList.remove("active"));
+    const activeBox = document.querySelector(
+      `.q-nav-box[data-idx="${currentIndex}"]`,
+    );
+    if (activeBox) activeBox.classList.add("active");
+  }
+
+  function updateCompletedCount() {
+    const answered = userAnswers.filter((a) => a !== null).length;
+    document.getElementById("completed-count").textContent =
+      `${answered}/${currentQuiz.data.length}`;
+  }
+
+  flagBtn.addEventListener("click", function () {
+    flaggedQuestions[currentIndex] = !flaggedQuestions[currentIndex];
+    this.classList.toggle("flagged", flaggedQuestions[currentIndex]);
+    const activeBox = document.querySelector(
+      `.q-nav-box[data-idx="${currentIndex}"]`,
+    );
+    if (activeBox) {
+      activeBox.classList.toggle("flagged", flaggedQuestions[currentIndex]);
+    }
+  });
+
+  // ===== HÀM XỬ LÝ NỘP BÀI =====
+  function submitQuiz() {
+    clearInterval(timerInterval);
+    const timeSpentSeconds = Math.floor((Date.now() - startTime) / 1000);
+
+    const resultData = {
+      quizId: currentQuiz.id,
+      quizName: currentQuiz.name,
+      timeSpent: timeSpentSeconds,
+      questions: currentQuiz.data,
+      userAnswers: userAnswers,
+      images: currentQuiz.images || [],
+    };
+
+    sessionStorage.setItem("current_quiz_result", JSON.stringify(resultData));
+    window.location.href = "quiz_result.html";
+  }
+
+  // Bấm nút nộp bài thủ công
+  btnFinish.addEventListener("click", function (e) {
+    e.preventDefault();
+    showConfirmModal("Bạn có chắc chắn muốn nộp bài ngay bây giờ?", () => {
+      submitQuiz();
+    });
+  });
+});
+
+]]>
+</file>
+<file name="src\main\resources\templates\dashboard.html">
+<![CDATA[
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LAN Monitoring Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+    <link rel="stylesheet" href="/css/style.css" />
+  </head>
+  <body class="bg-slate-900 text-slate-100 min-h-screen">
+    <!-- Header -->
+    <header
+      class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex justify-between items-center shadow-md"
+    >
+      <div class="flex items-center space-x-3">
+        <div class="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+        <h1 class="text-xl font-bold tracking-wide">
+          LAN Monitor & Remote Management
+        </h1>
+      </div>
+      <div class="flex items-center space-x-4">
+        <span
+          id="socket-status"
+          class="px-3 py-1 text-xs rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20"
+        >
+          Đang kết nối WebSocket...
+        </span>
+        <span
+          class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono"
+          >Port: 9999</span
+        >
+      </div>
+    </header>
+
+    <!-- Main Container -->
+
+    <main
+      class="max-w-[1400px] mx-auto p-6 grid grid-cols-1 lg:grid-cols-12 gap-6"
+    >
+      <!-- CỘT TRÁI (col-9): Không gian làm việc chính -->
+      <div class="lg:col-span-9 space-y-6">
+        <!-- Bảng Lệnh Điều Khiển (Nằm trên cùng) -->
+        <section
+          class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg"
+        >
+          <div
+            class="flex items-center justify-between border-b border-slate-700 pb-3 mb-4"
+          >
+            <h2 class="font-semibold text-slate-200">Bảng Lệnh Điều Khiển</h2>
+            <span
+              id="selected-client-tag"
+              class="text-xs text-slate-400 font-mono"
+              >Chưa chọn máy trạm</span
+            >
+            <div class="flex gap-3">
+              <button
+                onclick="openWhitelistModal()"
+                class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-md"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  ></path>
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  ></path>
+                </svg>
+                Cấu Hình Bài Thi
+              </button>
+            </div>
+          </div>
+          <!-- Các nút gửi Alert, Khóa bài thi, Chấm dứt thi sẽ nằm ở đây... -->
+        </section>
+
+        <!-- Danh Sách Máy Trạm (Nằm bên dưới bảng điều khiển) -->
+        <section
+          class="bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg min-h-[400px]"
+        >
+          <div
+            class="flex justify-between items-center border-b border-slate-700 pb-3 mb-4"
+          >
+            <h2 class="font-semibold text-slate-200">
+              Danh Sách Máy Trạm & Trạng Thái
+            </h2>
+            <span
+              id="client-count"
+              class="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-300 font-mono"
+              >0 online</span
+            >
+          </div>
+          <!-- Sẽ render các Card máy tính xếp thành Grid (dạng ô vuông) ở đây -->
+          <div
+            id="client-grid"
+            class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+          >
+            <!-- Nội dung card máy tính sẽ do JS sinh ra -->
+          </div>
+        </section>
+      </div>
+
+      <!-- CỘT PHẢI (col-3): Luồng Cảnh Báo Khả Nghi -->
+      <div
+        class="lg:col-span-3 bg-slate-800 border border-slate-700 rounded-xl p-5 shadow-lg flex flex-col h-[calc(100vh-100px)] sticky top-6"
+      >
+        <div
+          class="flex justify-between items-center mb-4 border-b border-slate-700 pb-3"
+        >
+          <h2 class="font-semibold text-slate-200 flex items-center gap-2">
+            <!-- Chấm đỏ nhấp nháy tạo cảm giác Live -->
+            <span
+              class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"
+            ></span>
+            Sự Kiện Khả Nghi
+          </h2>
+        </div>
+
+        <!-- Khung chứa Feed có thanh cuộn dọc (overflow-y-auto) -->
+        <div
+          id="alert-feed"
+          class="flex-1 overflow-y-auto space-y-3 pr-2 custom-scroll"
+        >
+          <!-- (VD MẪU) Thẻ cảnh báo này sẽ được JS add liên tục vào -->
+          <div
+            class="bg-slate-900 border-l-4 border-rose-500 rounded-r-lg p-3 shadow-md hover:bg-slate-800/80 transition cursor-pointer group"
+          >
+            <div class="flex justify-between items-start mb-1">
+              <span class="text-[11px] font-mono text-slate-400">10:00:45</span>
+              <!-- Nút Mở Ưu Tiên (Biểu tượng con mắt) -->
+              <button
+                title="Theo dõi ưu tiên"
+                class="text-slate-500 hover:text-indigo-400 transition-colors"
+              >
+                <svg
+                  class="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  ></path>
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                  ></path>
+                </svg>
+              </button>
+            </div>
+            <!-- <div>
+              <span class="font-bold text-sm text-slate-200">Máy 01</span>
+              <p class="text-xs text-rose-400 mt-0.5 line-clamp-2">
+                Đang mở tab: Chat GPT - Google Chrome
+              </p>
+            </div> -->
+          </div>
+          <!-- Kết thúc thẻ mẫu -->
+        </div>
+      </div>
+    </main>
+
+    <script src="/js/app.js"></script>
+
+    <!-- ================= MODAL LIVESTREAM (FULL SCREEN) ================= -->
+    <div
+      id="livestream-modal"
+      class="fixed inset-0 bg-slate-900 z-50 hidden flex-col w-screen h-screen"
+    >
+      <!-- Header Modal -->
+      <div
+        class="flex justify-between items-center px-6 py-4 border-b border-slate-700 bg-slate-800 shadow-md"
+      >
+        <h3 class="text-xl font-bold text-slate-200 flex items-center gap-3">
+          <span
+            class="w-3.5 h-3.5 rounded-full bg-rose-500 animate-pulse"
+          ></span>
+          LIVE STREAM:
+          <span id="livestream-title" class="text-emerald-400 tracking-wide"
+            >Máy 01</span
+          >
+        </h3>
+
+        <!-- Các nút chức năng phụ trên Header của Modal -->
+        <div class="flex items-center gap-4">
+          <button
+            onclick="captureLivestreamFrame()"
+            class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+              ></path>
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+              ></path>
+            </svg>
+            Chụp Ảnh
+          </button>
+
+          <button
+            class="bg-rose-600 hover:bg-rose-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 shadow-lg"
+          >
+            <svg
+              class="w-4 h-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8V7z"
+              ></path>
+            </svg>
+            Khóa Bài Thi Ngay
+          </button>
+
+          <div class="w-px h-6 bg-slate-600 mx-2"></div>
+
+          <!-- Nút Tắt -->
+          <button
+            onclick="closeLiveStream()"
+            class="text-slate-300 hover:text-white bg-slate-700 hover:bg-rose-500 px-3 py-2 rounded-lg transition flex items-center gap-2"
+          >
+            <span class="text-sm font-medium">Đóng Live</span>
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Khung chứa Video (Phóng to 100%) -->
+      <div
+        class="flex-1 flex justify-center items-center bg-black overflow-hidden relative p-4"
+      >
+        <img
+          id="livestream-img"
+          src=""
+          class="w-full h-full object-contain rounded-md"
+          alt="Đang kết nối tín hiệu..."
+        />
+
+        <!-- Overlay Loading khi mạng chậm -->
+        <div
+          id="livestream-loading"
+          class="absolute inset-0 flex items-center justify-center bg-black/50 hidden"
+        >
+          <span class="text-white animate-pulse tracking-widest font-mono"
+            >Đang chờ khung hình...</span
+          >
+        </div>
+      </div>
+    </div>
+    <!-- =================================================== -->
+
+    <!-- ================= MODAL CẤU HÌNH BÀI THI ================= -->
+    <div
+      id="whitelist-modal"
+      class="fixed inset-0 bg-black/80 z-50 hidden flex-col items-center justify-center backdrop-blur-sm"
+    >
+      <div
+        class="w-full max-w-lg bg-slate-800 rounded-xl overflow-hidden shadow-2xl border border-slate-700"
+      >
+        <div
+          class="px-6 py-4 border-b border-slate-700 flex justify-between items-center bg-slate-900"
+        >
+          <h3 class="text-lg font-bold text-slate-200">
+            Cấu Hình Danh Sách Hợp Lệ
+          </h3>
+          <button
+            onclick="closeWhitelistModal()"
+            class="text-slate-400 hover:text-rose-500"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
+          </button>
+        </div>
+        <div class="p-6">
+          <p class="text-sm text-slate-400 mb-4">
+            Nhập các từ khóa tiêu đề ứng dụng/Tab hợp lệ (cách nhau bởi dấu
+            phẩy). Bất kỳ cửa sổ nào nằm ngoài danh sách này sẽ bị báo động khả
+            nghi.
+          </p>
+          <textarea
+            id="whitelist-input"
+            rows="4"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-emerald-400 font-mono focus:border-indigo-500 focus:outline-none placeholder-slate-600"
+            placeholder="Ví dụ: Cơ sở 4, Word, Calculator"
+          ></textarea>
+          <div class="flex justify-end gap-3 mt-6">
+            <button
+              onclick="closeWhitelistModal()"
+              class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-white transition"
+            >
+              Hủy
+            </button>
+            <button
+              onclick="saveWhitelist()"
+              class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm text-white font-medium transition shadow-lg flex items-center gap-2"
+            >
+              <svg
+                class="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"
+                ></path>
+              </svg>
+              Lưu & Áp Dụng Ngay
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+
+]]>
+</file>
+<file name="src\main\resources\templates\quiz_result.html">
+<![CDATA[
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      type="image/x-icon"
+      href="../../assets/icons/favicon.ico"
+    />
+    <title>Kết quả bài thi - Study Space</title>
+
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../css/style.css" />
+    <link rel="stylesheet" href="../../css/Quiz_css/take_quiz.css" />
+    <!-- Kế thừa CSS cũ -->
+    <link rel="stylesheet" href="../../css/Quiz_css/quiz_result.css" />
+  </head>
+  <body class="bg-light">
+    <!-- Header -->
+    <header
+      class="quiz-header bg-white shadow-sm d-flex justify-content-between align-items-center px-4 py-3 sticky-top"
+    >
+      <div class="d-flex align-items-center gap-3">
+        <h4 class="fw-bold m-0 d-flex align-items-center text-dark">
+          <i class="bx bx-bar-chart-alt-2 text-primary me-2 fs-3"></i> Xem kết
+          quả
+        </h4>
+      </div>
+      <a
+        href="../../quiz.html"
+        class="btn btn-outline-danger rounded-pill fw-bold px-4"
+      >
+        Thoát xem kết quả
+      </a>
+    </header>
+
+    <main class="container py-5">
+      <!-- Dòng thống kê thông tin -->
+      <div class="row mb-5 justify-content-center">
+        <div class="col-md-10">
+          <div
+            class="d-flex justify-content-around align-items-center bg-white p-4 rounded-4 shadow-sm border"
+          >
+            <div class="text-center">
+              <p
+                class="text-muted fw-semibold mb-1 small text-uppercase tracking-wider"
+              >
+                Tên bài kiểm tra
+              </p>
+              <h5 class="fw-bold text-dark m-0" id="res-quiz-name">
+                Đang tải...
+              </h5>
+            </div>
+
+            <!-- Vách ngăn -->
+            <div
+              style="width: 2px; height: 40px; background-color: #e2e8f0"
+            ></div>
+
+            <div class="text-center">
+              <p
+                class="text-muted fw-semibold mb-1 small text-uppercase tracking-wider"
+              >
+                Tổng điểm
+              </p>
+              <h3 class="fw-black text-primary m-0" id="res-score">0,00</h3>
+            </div>
+
+            <!-- Vách ngăn -->
+            <div
+              style="width: 2px; height: 40px; background-color: #e2e8f0"
+            ></div>
+
+            <div class="text-center">
+              <p
+                class="text-muted fw-semibold mb-1 small text-uppercase tracking-wider"
+              >
+                Thời gian đã làm
+              </p>
+              <h5 class="fw-bold text-dark m-0" id="res-time">00:00</h5>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Danh sách chi tiết các câu hỏi -->
+      <div class="row justify-content-center">
+        <div class="col-md-10">
+          <h5 class="fw-bold mb-4 text-dark border-bottom pb-3">
+            Chi tiết câu trắc nghiệm đã làm
+          </h5>
+
+          <div id="result-details-list" class="d-flex flex-column gap-4 pb-5">
+            <!-- JS sẽ render toàn bộ câu hỏi và đáp án ở đây -->
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <script src="../../js/Quiz_js/quiz_result.js"></script>
+  </body>
+</html>
+
+]]>
+</file>
+<file name="src\main\resources\templates\take_quiz.html">
+<![CDATA[
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      type="image/x-icon"
+      href="../../assets/icons/favicon.ico"
+    />
+    <title>Đang làm bài thi - Study Space</title>
+
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../../css/Quiz_css/take_quiz.css" />
+    <link rel="stylesheet" href="../../css/toast.css" />
+  </head>
+  <body class="bg-light">
+    <!-- Màn hình chờ để kích hoạt Fullscreen -->
+    <div id="start-overlay" class="start-overlay">
+      <div class="text-center bg-white p-5 rounded-4 shadow">
+        <h3 class="fw-bold mb-3">Bạn đã sẵn sàng chưa?</h3>
+        <p class="text-muted mb-4">
+          Hệ thống sẽ chuyển sang chế độ toàn màn hình để làm bài.
+        </p>
+        <button
+          id="btn-start-quiz-now"
+          class="btn btn-primary btn-lg rounded-pill px-5 fw-bold"
+        >
+          <i class="bx bx-play-circle me-1"></i> Bắt đầu làm bài
+        </button>
+        <div class="mt-3">
+          <a
+            href="../../quiz.html"
+            class="text-muted small text-decoration-none"
+            >Quay lại</a
+          >
+        </div>
+      </div>
+    </div>
+
+    <!-- Giao diện làm bài -->
+    <div id="quiz-workspace" class="d-none">
+      <!-- Header -->
+      <header
+        class="quiz-header bg-white shadow-sm d-flex justify-content-between align-items-center px-4 py-3"
+      >
+        <div class="d-flex align-items-center gap-3">
+          <button
+            id="btn-back-quiz"
+            class="btn btn-outline-secondary rounded-pill btn-sm d-flex align-items-center"
+          >
+            <i class="bx bx-arrow-back me-1"></i> Quay lại
+          </button>
+          <h5 class="fw-bold m-0" id="quiz-title-display">
+            Đang tải dữ liệu...
+          </h5>
+        </div>
+        <!-- Khối thời gian (Sẽ bị JS ẩn nếu là chế độ có đáp án ngay) -->
+        <div
+          id="timer-container"
+          class="quiz-timer bg-dark text-white fw-bold px-4 py-2 rounded-pill fs-5 d-flex align-items-center"
+        >
+          <i class="bx bx-time-five me-2"></i>
+          <span id="timer-display">00:00</span>
+        </div>
+      </header>
+
+      <!-- Main Layout -->
+      <main class="container-fluid px-5 pt-5 pb-4">
+        <div class="row h-100">
+          <!-- Cột 1: Thông tin câu hỏi (col-1) -->
+          <div class="col-md-1">
+            <div class="card border-0 shadow-sm rounded-4 text-center p-3">
+              <h5 class="fw-bold text-dark mb-4 mt-2">
+                Câu <br /><span id="current-q-num" class="text-primary fs-3"
+                  >1</span
+                >
+              </h5>
+              <button
+                class="btn btn-light border d-flex flex-column align-items-center justify-content-center mx-auto mb-4 flag-btn"
+                style="width: 70px; height: 70px; border-radius: 12px"
+              >
+                <i class="bx bx-flag fs-3 text-secondary mb-1 flag-icon"></i>
+                <span
+                  class="small fw-semibold text-secondary"
+                  style="font-size: 11px"
+                  >Gắn cờ</span
+                >
+              </button>
+              <div
+                id="question-score-display"
+                class="score-badge bg-light text-dark fw-bold py-2 rounded-3 small"
+              >
+                Đang tính...
+              </div>
+            </div>
+          </div>
+
+          <!-- Cột 2: Nội dung câu hỏi (col-7) -->
+          <div class="col-md-7">
+            <div
+              class="card border-0 shadow-sm rounded-4 p-4 h-100 d-flex flex-column"
+            >
+              <div class="flex-grow-1">
+                <!-- Nội dung câu hỏi -->
+
+                <h5
+                  class="fw-bold mb-3"
+                  id="question-text"
+                  style="line-height: 1.6"
+                >
+                  Đang tải câu hỏi...
+                </h5>
+
+                <!-- BỔ SUNG: Khu vực hiển thị hình ảnh đính kèm của câu hỏi -->
+                <div
+                  id="question-images-area"
+                  class="d-flex flex-column gap-3 mb-4"
+                >
+                  <!-- Javascript sẽ sinh ra các thẻ <img> ở đây -->
+                </div>
+
+                <!-- Danh sách đáp án -->
+                <div id="options-area" class="d-flex flex-column gap-3 mb-4">
+                  <!-- JS Render options -->
+                </div>
+
+                <!-- Khu vực xem đáp án (Chỉ hiển thị ở chế độ Immediate) -->
+                <div
+                  id="immediate-feedback-area"
+                  class="d-none border-top pt-4 mt-2"
+                >
+                  <button
+                    id="btn-toggle-answer"
+                    class="btn btn-outline-primary rounded-pill btn-sm fw-bold px-3 mb-3"
+                  >
+                    <i class="bx bx-show me-1"></i> Xem đáp án
+                  </button>
+                  <div
+                    id="explanation-box"
+                    class="bg-light p-3 rounded-3 border d-none"
+                  >
+                    <p class="fw-bold text-success mb-2">
+                      Đáp án đúng: <span id="correct-answer-text"></span>
+                    </p>
+                    <p
+                      class="text-muted mb-0 small"
+                      id="explanation-text"
+                      style="line-height: 1.6"
+                    ></p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Footer điều hướng (Nằm dưới cùng cột 2) -->
+              <div
+                class="d-flex justify-content-between align-items-center mt-4 pt-3 border-top"
+              >
+                <button
+                  id="btn-prev-question"
+                  class="btn btn-light border fw-bold px-4 rounded-pill text-secondary"
+                >
+                  <i class="bx bx-left-arrow-alt me-1"></i> Câu trước
+                </button>
+                <button
+                  id="btn-next-question"
+                  class="btn btn-primary fw-bold px-4 rounded-pill"
+                >
+                  Câu sau <i class="bx bx-right-arrow-alt ms-1"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Cột 3: Lưới điều hướng câu hỏi (col-4) -->
+          <div class="col-md-4">
+            <div
+              class="card border-0 shadow-sm rounded-4 p-4 h-100 d-flex flex-column"
+            >
+              <h6
+                class="fw-bold mb-4 d-flex justify-content-between align-items-center"
+              >
+                <span>Bảng câu hỏi</span>
+                <span
+                  class="badge bg-primary rounded-pill px-3 py-2"
+                  id="completed-count"
+                  >0/10</span
+                >
+              </h6>
+
+              <!-- Lưới Grid 6 ô 1 hàng -->
+              <div
+                class="question-grid flex-grow-1 align-content-start"
+                id="question-navigation-grid"
+              >
+                <!-- JS sinh ô số -->
+              </div>
+
+              <!-- Nút Làm xong! có gạch chân dạng thẻ a -->
+              <div class="mt-4 pt-3 border-top text-center">
+                <a
+                  href="#"
+                  id="btn-finish-quiz"
+                  class="text-dark fw-bold text-decoration-underline fs-6"
+                  >Làm xong!</a
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- MODAL: XÁC NHẬN CHUNG (THAY THẾ CONFIRM) -->
+    <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content rounded-4 border-0 shadow">
+          <div class="modal-header border-bottom-0 pt-4 px-4 pb-0">
+            <h5 class="modal-title fw-bold text-dark">
+              <i class="bx bx-error-circle text-danger me-2"></i>Xác nhận
+            </h5>
+            <button
+              type="button"
+              class="btn-close"
+              data-bs-dismiss="modal"
+              aria-label="Close"
+            ></button>
+          </div>
+          <div
+            class="modal-body px-4 py-3 text-secondary fw-semibold"
+            id="confirmModalMessage"
+          >
+            <!-- Nội dung sẽ được đưa vào bằng JS -->
+          </div>
+          <div
+            class="modal-footer border-top-0 pb-4 px-4 d-flex justify-content-end gap-2"
+          >
+            <button
+              type="button"
+              class="btn btn-light fw-bold px-4 rounded-3"
+              data-bs-dismiss="modal"
+            >
+              Hủy
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary fw-bold px-4 rounded-3"
+              id="confirmModalBtn"
+            >
+              Đồng ý
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="../../js/toast.js"></script>
+    <script src="../../js/Quiz_js/take_quiz.js"></script>
+  </body>
+</html>
+
+]]>
+</file>
+<file name="pom.xml">
+<![CDATA[
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>org.springframework.boot</groupId>
+		<artifactId>spring-boot-starter-parent</artifactId>
+		<version>4.1.1</version>
+		<relativePath/> <!-- lookup parent from repository -->
+	</parent>
+	<groupId>com.vku.lanmonitor</groupId>
+	<artifactId>lan-server</artifactId>
+	<version>0.0.1-SNAPSHOT</version>
+	<name/>
+	<description/>
+	<url/>
+	<licenses>
+		<license/>
+	</licenses>
+	<developers>
+		<developer/>
+	</developers>
+	<scm>
+		<connection/>
+		<developerConnection/>
+		<tag/>
+		<url/>
+	</scm>
+	<properties>
+		<java.version>17</java.version>
+	</properties>
+	<dependencies>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+		</dependency>
+
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-devtools</artifactId>
+			<scope>runtime</scope>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.projectlombok</groupId>
+			<artifactId>lombok</artifactId>
+			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-webmvc-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+	</dependencies>
+
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<executions>
+					<execution>
+						<id>default-compile</id>
+						<phase>compile</phase>
+						<goals>
+							<goal>compile</goal>
+						</goals>
+						<configuration>
+							<annotationProcessorPaths>
+								<path>
+									<groupId>org.projectlombok</groupId>
+									<artifactId>lombok</artifactId>
+								</path>
+							</annotationProcessorPaths>
+						</configuration>
+					</execution>
+					<execution>
+						<id>default-testCompile</id>
+						<phase>test-compile</phase>
+						<goals>
+							<goal>testCompile</goal>
+						</goals>
+						<configuration>
+							<annotationProcessorPaths>
+								<path>
+									<groupId>org.projectlombok</groupId>
+									<artifactId>lombok</artifactId>
+								</path>
+							</annotationProcessorPaths>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+		</plugins>
+	</build>
+
+</project>
+
+]]>
+</file>
+</files>

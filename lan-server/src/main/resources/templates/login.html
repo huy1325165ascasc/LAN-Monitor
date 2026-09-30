@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Đăng nhập - Sinh viên</title>
+
+    <!-- CSS thư viện -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css"
+      rel="stylesheet"
+    />
+
+    <!-- CSS tự viết -->
+    <link rel="stylesheet" href="/css/login.css" />
+  </head>
+
+  <body class="d-flex align-items-center justify-content-center vh-100">
+    <div class="card login-card p-4 p-md-5 bg-white">
+      <div class="text-center mb-4">
+        <div class="icon-wrapper mb-3">
+          <i class="bx bxs-user-badge fs-1"></i>
+        </div>
+        <h3 class="fw-bold text-dark mb-1">Sinh Viên Đăng Nhập</h3>
+        <p class="text-muted small">Hệ thống Thi & Giám sát nội bộ VKU</p>
+      </div>
+
+      <form id="loginForm">
+        <!-- Input Mã Sinh Viên -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold text-secondary small"
+            >Mã Sinh Viên</label
+          >
+          <div class="input-group">
+            <span class="input-group-text bg-transparent text-muted"
+              ><i class="bx bx-id-card fs-5"></i
+            ></span>
+            <input
+              type="text"
+              class="form-control"
+              id="studentId"
+              placeholder="Ví dụ: 24ITB217"
+              required
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <!-- Input Mật Khẩu -->
+        <div class="mb-4">
+          <label class="form-label fw-semibold text-secondary small"
+            >Mật khẩu</label
+          >
+          <div class="input-group">
+            <span class="input-group-text bg-transparent text-muted"
+              ><i class="bx bx-lock-alt fs-5"></i
+            ></span>
+            <input
+              type="password"
+              class="form-control"
+              id="password"
+              placeholder="Nhập mật khẩu..."
+              required
+            />
+          </div>
+        </div>
+
+        <!-- Button Nộp -->
+        <button
+          type="submit"
+          class="btn btn-login btn-primary w-100 fw-bold rounded-pill py-2.5 d-flex align-items-center justify-content-center gap-2"
+        >
+          Vào Phòng Thi <i class="bx bx-right-arrow-alt fs-4"></i>
+        </button>
+      </form>
+    </div>
+
+    <!-- JS Tự viết (Đã thêm dòng kiểm tra session) -->
+    <script>
+      // Kiểm tra nếu đã đăng nhập thì đá thẳng vào trang chủ (phòng chờ)
+      if (sessionStorage.getItem("student_id")) {
+        window.location.href = "/";
+      }
+    </script>
+    <script src="/js/login.js"></script>
+  </body>
+</html>

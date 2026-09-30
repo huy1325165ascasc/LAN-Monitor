@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Luồng Giao Tiếp Giao Thức Mạng LAN Client - Server",
+    "output": "lan-client-sequence.html",
+    "viewBox": [1040, 640],
+    "column_fit": "spread",
+    "animation": "trace",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "handshake-view",
+        "label": "1. Khởi tạo & Báo danh",
+        "focus": ["student", "client_app", "socket_svc", "server"],
+        "note": "Khởi động ứng dụng, định danh hostname và bắt tay TCP với Server."
+      },
+      {
+        "id": "monitoring-view",
+        "label": "2. Giám sát hành vi vi phạm",
+        "focus": ["socket_svc", "native_jna", "server"],
+        "note": "Luồng ngầm 1s/lần quét cửa sổ qua JNA Win32 và phát cảnh báo SUSPICIOUS:RED."
+      },
+      {
+        "id": "command-view",
+        "label": "3. Lệnh chụp ảnh & Cảnh báo",
+        "focus": ["server", "socket_svc", "robot_cap", "student"],
+        "note": "Giám thị yêu cầu chụp màn hình (Robot JPEG) và gửi lệnh cảnh báo."
+      }
+    ]
+  },
+  "participants": [
+    { "id": "student", "type": "external", "label": "Sinh Viên", "sublabel": "OS Desktop" },
+    { "id": "client_app", "type": "frontend", "label": "ClientApp", "sublabel": "Hàm main()" },
+    { "id": "socket_svc", "type": "backend", "label": "SocketClient", "sublabel": "TCP Core" },
+    { "id": "native_jna", "type": "security", "label": "ActiveWindow", "sublabel": "JNA Win32" },
+    { "id": "robot_cap", "type": "backend", "label": "ScreenCapture", "sublabel": "AWT Robot" },
+    { "id": "server", "type": "external", "label": "Teacher Server", "sublabel": "Dashboard" }
+  ],
+  "segments": [
+    { "from": 150, "to": 255, "label": "1. Khởi tạo & Báo danh" },
+    { "from": 265, "to": 375, "label": "2. Giám sát ngầm vi phạm (1s/lần)" },
+    { "from": 390, "to": 565, "label": "3. Lệnh điều khiển từ Giám thị" }
+  ],
+  "messages": [
+    { "id": "msg-start", "from": "student", "to": "client_app", "y": 165, "label": "Chạy ClientApp(serverIp)", "variant": "default" },
+    { "id": "msg-init", "from": "client_app", "to": "socket_svc", "y": 200, "label": "start(serverIp, port, pcName)", "variant": "emphasis" },
+    { "id": "msg-connect", "from": "socket_svc", "to": "server", "y": 235, "label": "TCP Connect + 'CONNECT:studentId'", "variant": "emphasis" },
+    { "id": "msg-poll-window", "from": "socket_svc", "to": "native_jna", "y": 280, "label": "getActiveWindowTitle() (1s)", "variant": "default" },
+    { "id": "msg-return-title", "from": "native_jna", "to": "socket_svc", "y": 315, "label": "Trả về 'ChatGPT - Chrome'", "variant": "return" },
+    { "id": "msg-suspicious", "from": "socket_svc", "to": "server", "y": 350, "label": "Gửi 'SUSPICIOUS:RED|...'", "variant": "security" },
+    { "id": "msg-capture-cmd", "from": "server", "to": "socket_svc", "y": 405, "label": "Lệnh 'CAPTURE_SCREEN'", "variant": "emphasis" },
+    { "id": "msg-trigger-cap", "from": "socket_svc", "to": "robot_cap", "y": 440, "label": "captureCurrentScreen()", "variant": "default" },
+    { "id": "msg-return-cap", "from": "robot_cap", "to": "socket_svc", "y": 475, "label": "Nén JPEG -> Base64", "variant": "return" },
+    { "id": "msg-send-screen", "from": "socket_svc", "to": "server", "y": 510, "label": "Gửi 'SCREEN:<base64>'", "variant": "emphasis" },
+    { "id": "msg-alert-cmd", "from": "server", "to": "socket_svc", "y": 545, "label": "Lệnh 'ALERT:Cảnh cáo'", "variant": "security" }
+  ],
+  "activations": [
+    { "participant": "client_app", "from": 160, "to": 205, "type": "frontend" },
+    { "participant": "socket_svc", "from": 195, "to": 555, "type": "backend" },
+    { "participant": "native_jna", "from": 275, "to": 320, "type": "security" },
+    { "participant": "server", "from": 230, "to": 550, "type": "external" },
+    { "participant": "robot_cap", "from": 435, "to": 480, "type": "backend" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Báo danh tự động",
+      "items": [
+        "Client tự phát hiện Hostname làm định danh sinh viên",
+        "Kết nối TCP cổng 9999 và gửi gói tin CONNECT ngay lập tức",
+        "Cơ chế tự động thử lại sau 5s nếu mất kết nối (Auto-Reconnect)"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Giám sát & Phát hiện gian lận",
+      "items": [
+        "Hàm Native C/Windows (GetForegroundWindow) qua JNA",
+        "So khớp thời gian thực với Whitelist do Giám thị phân phối",
+        "Gửi tín hiệu SUSPICIOUS:RED kích hoạt đèn đỏ trên Server"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Tác vụ thời gian thực",
+      "items": [
+        "Thầy giáo kích hoạt chụp màn hình bằng CAPTURE_SCREEN",
+        "Java AWT Robot chụp toàn màn hình và truyền Base64 nhanh chóng",
+        "Bật cửa sổ cảnh báo JOptionPane trực tiếp lên máy sinh viên"
+      ]
+    }
+  ]
+}
