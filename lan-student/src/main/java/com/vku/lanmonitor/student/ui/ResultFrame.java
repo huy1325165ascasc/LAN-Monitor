@@ -174,15 +174,15 @@ public class ResultFrame extends JFrame {
                 String optText = options.get(key);
                 JLabel lblOpt;
                 if (key.equalsIgnoreCase(correctAnswer)) {
-                    lblOpt = new JLabel("✓ " + key + ". " + optText);
+                    lblOpt = new JLabel("[ĐÚNG] " + key + ". " + optText);
                     lblOpt.setForeground(COLOR_GREEN);
                     lblOpt.setFont(new Font("Arial", Font.BOLD, 13));
                 } else if (key.equalsIgnoreCase(userAns)) {
-                    lblOpt = new JLabel("✗ " + key + ". " + optText);
+                    lblOpt = new JLabel("[SAI] " + key + ". " + optText);
                     lblOpt.setForeground(COLOR_RED);
                     lblOpt.setFont(new Font("Arial", Font.BOLD, 13));
                 } else {
-                    lblOpt = new JLabel(key + ". " + optText);
+                    lblOpt = new JLabel("          " + key + ". " + optText);
                     lblOpt.setForeground(COLOR_GREY);
                     lblOpt.setFont(new Font("Arial", Font.PLAIN, 13));
                 }
