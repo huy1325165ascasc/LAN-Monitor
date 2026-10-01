@@ -186,11 +186,19 @@ public class TakeQuizFrame extends JFrame {
             SwingUtilities.invokeLater(() -> loadQuizData(json));
         } else if (message.startsWith("SUBMIT_OK")) {
             SwingUtilities.invokeLater(() -> {
-                lblStatus.setText("Nộp bài thành công!");
-                JOptionPane.showMessageDialog(this, 
-                    "Nộp bài thành công! Kết quả sẽ được xem ở Phase 3D.", 
-                    "Thành công", JOptionPane.INFORMATION_MESSAGE);
-                if (timer != null) timer.stop();
+                if (timer != null) {
+                    timer.stop();
+                    timer = null;
+                }
+                long timeSpent = (System.currentTimeMillis() - startTime) / 1000;
+                String quizName = quizData != null ? String.valueOf(quizData.get("name")) : "Bài thi";
+                
+                this.dispose();
+                
+                ResultFrame rf = new ResultFrame(
+                    studentId, tcpClient, quizName, 
+                    questions, userAnswers, timeSpent);
+                rf.setVisible(true);
             });
         } else if (message.startsWith("SUBMIT_FAIL")) {
             SwingUtilities.invokeLater(() -> 
