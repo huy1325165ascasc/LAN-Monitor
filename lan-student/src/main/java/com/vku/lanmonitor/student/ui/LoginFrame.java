@@ -164,20 +164,11 @@ public class LoginFrame extends JFrame {
         System.out.println("[DEBUG] openStudentHome: " + studentId);
         SwingUtilities.invokeLater(() -> {
             try {
-                StudentHomeFrame homeFrame = new StudentHomeFrame(studentId, serverHost, serverPort);
+                StudentHomeFrame homeFrame = new StudentHomeFrame(studentId, tcpClient);
                 System.out.println("[DEBUG] StudentHomeFrame created");
-                
-                // Disconnect LoginFrame's TCP in background thread
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(500);  // chờ StudentHomeFrame connect xong
-                        tcpClient.disconnect();
-                        System.out.println("[DEBUG] LoginFrame TCP disconnected");
-                    } catch (Exception ignored) {}
-                }).start();
-                
-                setVisible(false);   // ẨN LoginFrame thay vì dispose
-                
+                setVisible(false);
+                // KHÔNG disconnect tcpClient
+                // KHÔNG dispose
             } catch (Exception e) {
                 System.err.println("[DEBUG] LỖI: " + e.getMessage());
                 e.printStackTrace();
