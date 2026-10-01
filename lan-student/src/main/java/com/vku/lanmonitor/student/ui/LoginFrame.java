@@ -144,9 +144,7 @@ public class LoginFrame extends JFrame {
     }
 
     private void handleServerMessage(String message) {
-        System.out.println("[DEBUG] === Nhận từ server: [" + message + "]");
         SwingUtilities.invokeLater(() -> {
-            System.out.println("[DEBUG] Lambda đang xử lý: [" + message + "]");
             if (message.startsWith("LOGIN_OK")) {
                 showStatus("Đăng nhập thành công!", new Color(0, 150, 0));
                 openStudentHome(txtStudentId.getText().trim());
@@ -164,39 +162,31 @@ public class LoginFrame extends JFrame {
 
     private void openStudentHome(String studentId) {
         System.out.println("[DEBUG] openStudentHome: " + studentId);
-        try {
-            // 1. Tạo frame mới trước
-            StudentHomeFrame homeFrame = new StudentHomeFrame(studentId, serverHost, serverPort);
-            System.out.println("[DEBUG] Đã tạo StudentHomeFrame");
-            
-            // 2. Đóng frame login
-            this.dispose();
-            System.out.println("[DEBUG] LoginFrame đã dispose");
-            
-            // 3. Hiện frame mới
-            homeFrame.setVisible(true);
-            System.out.println("[DEBUG] StudentHomeFrame đã hiển thị");
-            
-            // 4. Disconnect TCP
-            tcpClient.disconnect();
-            System.out.println("[DEBUG] Đã disconnect TCP");
-            
-        } catch (Exception e) {
-            System.err.println("[DEBUG] LỖI openStudentHome: " + e.getMessage());
-            e.printStackTrace();
-        }
+        SwingUtilities.invokeLater(() -> {
+            try {
+                StudentHomeFrame homeFrame = new StudentHomeFrame(studentId, serverHost, serverPort);
+                System.out.println("[DEBUG] StudentHomeFrame created");
+                
+                // Disconnect LoginFrame's TCP in background thread
+                new Thread(() -> {
+                    try {
+                        Thread.sleep(500);  // chờ StudentHomeFrame connect xong
+                        tcpClient.disconnect();
+                        System.out.println("[DEBUG] LoginFrame TCP disconnected");
+                    } catch (Exception ignored) {}
+                }).start();
+                
+                setVisible(false);   // ẨN LoginFrame thay vì dispose
+                
+            } catch (Exception e) {
+                System.err.println("[DEBUG] LỖI: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
     }
 
     private void showStatus(String message, Color color) {
         lblStatus.setText(message);
         lblStatus.setForeground(color);
-    }
-
-    @Override
-    protected void processWindowEvent(java.awt.event.WindowEvent e) {
-        super.processWindowEvent(e);
-        if (e.getID() == java.awt.event.WindowEvent.WINDOW_CLOSED) {
-            tcpClient.disconnect();
-        }
     }
 }
