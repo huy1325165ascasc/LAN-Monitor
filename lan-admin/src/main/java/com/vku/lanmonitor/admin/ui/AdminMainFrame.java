@@ -52,8 +52,8 @@ public class AdminMainFrame extends JFrame {
         tabbedPane.setFont(new Font("Arial", Font.BOLD, 13));
 
         // Tab 1: Dashboard
-        JPanel pnlDashboard = createPlaceholderPanel("Coming soon: Phase 4B");
-        tabbedPane.addTab("Dashboard", pnlDashboard);
+        DashboardPanel dashboardPanel = new DashboardPanel(tcpClient);
+        tabbedPane.addTab("Dashboard", dashboardPanel);
 
         // Tab 2: Quản lý đề thi
         JPanel pnlQuizManage = createPlaceholderPanel("Coming soon: Phase 4C");

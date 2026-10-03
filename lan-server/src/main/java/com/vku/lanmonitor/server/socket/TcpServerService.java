@@ -21,6 +21,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -139,7 +140,15 @@ public class TcpServerService implements CommandLineRunner {
                 } else if (line.startsWith("SUBMIT_QUIZ:")) {
                     handleSubmitQuiz(payload(line, "SUBMIT_QUIZ:"), out);
                 } else if (line.startsWith("REQ_CLIENT_LIST")) {
-                    out.println("RES_CLIENT_LIST:" + mapper.writeValueAsString(clientNames()));
+                    List<Map<String, String>> details = new ArrayList<>();
+                    for (ClientSession session : activeClients.values()) {
+                        Map<String, String> c = new HashMap<>();
+                        c.put("id", session.getId());
+                        c.put("ip", session.getIpAddress());
+                        c.put("pcName", session.getPcName());
+                        details.add(c);
+                    }
+                    out.println("RES_CLIENT_LIST:" + mapper.writeValueAsString(details));
                 } else if (line.startsWith("REQ_QUIZ_ALL")) {
                     out.println("RES_QUIZ_ALL:" + mapper.writeValueAsString(quizService.loadAllQuizzes()));
                 } else if (line.startsWith("SAVE_QUIZ:")) {
