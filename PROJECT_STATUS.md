@@ -1,8 +1,8 @@
 # 📊 LAN MONITOR — PROJECT STATUS
 
 ## 📌 Metadata
-- **Ngày cập nhật**: 2026-10-03 10:42:06
-- **Git HEAD**: f05c04a Phase 4D: ConfigPanel for whitelist management
+- **Ngày cập nhật**: 2026-10-03 12:56:05
+- **Git HEAD**: 14c0e63 Phase 4E: LivestreamDialog with Base64 image pipeline fixed
 - **Người cập nhật**: xuanvinh
 
 ## 🏗️ Cấu trúc thư mục
@@ -34,9 +34,10 @@ F:\Do_An_Mang\
 | 3C | TakeQuizFrame (timer + submit) | ✅ |
 | 3D | ResultFrame (điểm + chi tiết) | ✅ |
 | 4A | AdminApp + LoginFrame + skeleton | ✅ |
-| 4B | DashboardPanel (danh sách clients) | ✅ Đã test OK |
-| 4C | Quiz Editor | ✅ Đã test OK |
-| 4D | Whitelist + Livestream | ✅ Đã test OK |
+| 4B | DashboardPanel | ✅ |
+| 4C | QuizEditorPanel | ✅ |
+| 4D | ConfigPanel | ✅ |
+| 4E | LivestreamDialog | ✅ |
 
 ## 🚀 Lệnh khởi động
 
@@ -90,14 +91,20 @@ CAPTURE, SEND_ALERT, UPDATE_WHITELIST_CONFIG
 - Nút "Tải lại" từ server
 - Nút "Lưu & Áp dụng" (gửi tới tất cả clients)
 
+## 🏆 Thành tựu
+- 4 phân hệ hoàn chỉnh: server, student, admin, anti-cheat client
+- 20+ TCP commands
+- 3 tab AdminApp + Livestream
+- Test 6 apps cùng lúc OK
+
 ## ⚠️ Vấn đề tồn đọng
 - Log server hiển thị tiếng Việt lỗi font: chạy `chcp 65001` trước khi start
 - Chưa test trên 2 máy LAN thật (hiện tại chạy localhost)
 
 ## 🎯 Bước tiếp theo
-1. Phase 4E (tùy chọn): Livestream viewer
-2. Hoặc: Chuẩn bị báo cáo + slide nộp bài
-3. Test tích hợp toàn bộ hệ thống trên mạng LAN thật
+1. Test tích hợp 2 máy LAN (tùy chọn)
+2. Viết báo cáo + slide
+3. Đóng gói zip nộp bài
 
 ## 📝 Lịch sử thay đổi
 
@@ -107,7 +114,7 @@ CAPTURE, SEND_ALERT, UPDATE_WHITELIST_CONFIG
 | 2026-10-01 | Phase 2-3D: hoàn thành Exam System cho sinh viên |
 | 2026-10-01 | Phase 4A: Admin skeleton |
 | 2026-10-02 | Dọn dẹp dự án: xóa 5 backup cũ + 7 file rác, đổi tên lan-client, tạo PROJECT_STATUS.md |
-| 2026-10-03 | Phase 4B-4D: hoàn thành AdminApp với 3 tabs (Dashboard, Quiz Editor, Config) |
+| 2026-10-03 | Phase 4B-4E: hoàn thành AdminApp với 3 tabs và LivestreamDialog |
 
 ## 🧹 Dọn dẹp đã thực hiện (2026-10-02)
 

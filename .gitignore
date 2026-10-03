@@ -58,6 +58,9 @@ temp/
 
 # Backup folders
 *_backup_phase*/
+lan-admin_backup_*/
+lan-student_backup_*/
+Do_An_Mang_backup_*/
 
 # Build outputs
 **/target/
