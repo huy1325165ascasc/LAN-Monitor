@@ -60,8 +60,8 @@ public class AdminMainFrame extends JFrame {
         tabbedPane.addTab("Quản lý đề thi", quizEditorPanel);
 
         // Tab 3: Cấu hình
-        JPanel pnlConfig = createPlaceholderPanel("Coming soon: Phase 4D");
-        tabbedPane.addTab("Cấu hình", pnlConfig);
+        ConfigPanel configPanel = new ConfigPanel(tcpClient);
+        tabbedPane.addTab("Cấu hình", configPanel);
 
         add(tabbedPane, BorderLayout.CENTER);
 
