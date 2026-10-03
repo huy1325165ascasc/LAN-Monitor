@@ -69,11 +69,14 @@ public class LivestreamDialog extends JDialog {
         messageHandler = this::handleServerMessage;
         dispatcher.addHandler(messageHandler);
 
-        captureTimer = new javax.swing.Timer(500, e -> 
-            tcpClient.sendCommand("CAPTURE:" + clientId));
+        captureTimer = new javax.swing.Timer(500, e -> {
+            System.out.println("[LIVE] Timer tick, sending CAPTURE:" + clientId);
+            tcpClient.sendCommand("CAPTURE:" + clientId);
+        });
         captureTimer.start();
 
         tcpClient.sendCommand("CAPTURE:" + clientId);
+        System.out.println("[LIVE] Sent CAPTURE:" + clientId);
 
         btnCapture.addActionListener(e -> {
             tcpClient.sendCommand("SAVE_FRAME:" + clientId);
@@ -92,13 +95,20 @@ public class LivestreamDialog extends JDialog {
     }
 
     private void handleServerMessage(String message) {
+        System.out.println("[LIVE] Received: " + message.substring(0, Math.min(80, message.length())));
         if (message.startsWith("SCREEN_STREAM:")) {
             String rest = message.substring("SCREEN_STREAM:".length());
-            int sepIdx = rest.indexOf(':');
-            if (sepIdx < 0) return;
-            String senderId = rest.substring(0, sepIdx);
-            if (!senderId.equals(clientId)) return;
-            String base64 = rest.substring(sepIdx + 1);
+            int firstColon = rest.indexOf(':');
+            if (firstColon < 0) return;
+            int secondColon = rest.indexOf(':', firstColon + 1);
+            if (secondColon < 0) return;
+            String senderId = rest.substring(0, secondColon);
+            if (!senderId.equals(clientId)) {
+                System.out.println("[LIVE] Ignore stream from " + senderId + " (expect " + clientId + ")");
+                return;
+            }
+            String base64 = rest.substring(secondColon + 1);
+            System.out.println("[LIVE] Matched! base64 len=" + base64.length());
             SwingUtilities.invokeLater(() -> updateImage(base64));
         }
     }
@@ -113,6 +123,7 @@ public class LivestreamDialog extends JDialog {
             int lh = imageLabel.getHeight();
             if (lw <= 0 || lh <= 0) {
                 imageLabel.setIcon(new ImageIcon(img));
+                System.out.println("[LIVE] Image updated successfully");
                 return;
             }
             double scale = Math.min((double) lw / img.getWidth(),
@@ -124,6 +135,7 @@ public class LivestreamDialog extends JDialog {
             imageLabel.setText("");
             statusLabel.setText("Cập nhật: " + new java.text.SimpleDateFormat("HH:mm:ss")
                     .format(new java.util.Date()));
+            System.out.println("[LIVE] Image updated successfully");
         } catch (Exception e) {
             statusLabel.setText("Lỗi decode ảnh: " + e.getMessage());
         }

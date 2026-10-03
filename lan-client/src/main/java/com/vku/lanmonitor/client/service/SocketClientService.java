@@ -121,10 +121,12 @@ public class SocketClientService {
                         JOptionPane.WARNING_MESSAGE);
             }).start();
         } else if ("CAPTURE_SCREEN".equals(command)) {
-            // Chụp ảnh và gửi lên
+            System.out.println("[CLIENT] CAPTURE_SCREEN received!");
             byte[] imgBytes = ScreenCaptureUtil.captureCurrentScreen();
+            System.out.println("[CLIENT] Screenshot size: " + (imgBytes != null ? imgBytes.length : 0));
             if (imgBytes != null && imgBytes.length > 0) {
                 String base64 = Base64.getEncoder().encodeToString(imgBytes);
+                System.out.println("[CLIENT] Sending SCREEN, base64 len=" + base64.length());
                 out.println("SCREEN:" + base64);
             }
         } else if (command.startsWith("UPDATE_WHITELIST:")) {

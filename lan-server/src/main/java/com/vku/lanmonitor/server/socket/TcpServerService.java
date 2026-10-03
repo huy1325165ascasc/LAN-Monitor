@@ -276,12 +276,15 @@ public class TcpServerService implements CommandLineRunner {
         }
 
         private void handleCapture(String target, PrintWriter out) {
+            System.out.println("[SERVER] CAPTURE command received for: " + target);
             String resolved = resolveClientId(target);
+            System.out.println("[SERVER] Resolved to: " + resolved);
             if (resolved == null) {
                 out.println("CAPTURE_FAIL:not_found");
                 return;
             }
             broadcastService.sendToClient(resolved, "CAPTURE_SCREEN");
+            System.out.println("[SERVER] Sent CAPTURE_SCREEN to " + resolved);
         }
 
         private void handleSendAlert(String payload) {
@@ -310,7 +313,8 @@ public class TcpServerService implements CommandLineRunner {
         }
 
         private void handleScreen(String base64Image) {
-            broadcastService.broadcastToAdmins("SCREEN:" + base64Image);
+            System.out.println("[SERVER] SCREEN received, len=" + base64Image.length());
+            broadcastService.broadcastToAdmins("SCREEN_STREAM:" + connectionId + ":" + base64Image);
             if (clientId != null && captureRequests.getOrDefault(clientId, false)) {
                 captureRequests.put(clientId, false);
                 try {
