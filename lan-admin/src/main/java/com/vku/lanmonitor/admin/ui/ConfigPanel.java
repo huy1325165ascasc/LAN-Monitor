@@ -1,5 +1,6 @@
 package com.vku.lanmonitor.admin.ui;
 
+import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
 import javax.swing.*;
 import java.awt.*;
@@ -10,7 +11,7 @@ public class ConfigPanel extends JPanel {
     private final JTextArea txtWhitelist;
     private final JLabel lblStatus;
 
-    public ConfigPanel(AdminTcpClient tcpClient) {
+    public ConfigPanel(AdminTcpClient tcpClient, AdminMessageDispatcher dispatcher) {
         this.tcpClient = tcpClient;
         setLayout(new BorderLayout(5, 5));
         setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
@@ -47,7 +48,7 @@ public class ConfigPanel extends JPanel {
         btnLoad.addActionListener(e -> tcpClient.sendCommand("REQ_WHITELIST"));
         btnSave.addActionListener(e -> saveWhitelist());
 
-        tcpClient.setMessageListener(this::handleServerMessage);
+        dispatcher.addHandler(this::handleServerMessage);
         tcpClient.sendCommand("REQ_WHITELIST");
     }
 

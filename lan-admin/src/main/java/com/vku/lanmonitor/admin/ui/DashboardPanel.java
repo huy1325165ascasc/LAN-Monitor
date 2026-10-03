@@ -1,6 +1,7 @@
 package com.vku.lanmonitor.admin.ui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
 import javax.swing.*;
 import java.awt.*;
@@ -11,14 +12,17 @@ import java.util.Map;
 
 public class DashboardPanel extends JPanel {
     private final AdminTcpClient tcpClient;
+    private final AdminMessageDispatcher dispatcher;
     private final DefaultListModel<String> clientListModel;
     private final JList<String> clientList;
     private final JLabel lblStatus;
     private final JLabel lblCount;
     private javax.swing.Timer refreshTimer;
+    private List<Map<String, Object>> currentClients;
 
-    public DashboardPanel(AdminTcpClient tcpClient) {
+    public DashboardPanel(AdminTcpClient tcpClient, AdminMessageDispatcher dispatcher) {
         this.tcpClient = tcpClient;
+        this.dispatcher = dispatcher;
         setLayout(new BorderLayout(5, 5));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -26,12 +30,16 @@ public class DashboardPanel extends JPanel {
         JLabel lblTitle = new JLabel("Danh sách máy trạm đang online");
         lblTitle.setFont(new Font("Arial", Font.BOLD, 16));
         JButton btnRefresh = new JButton("Làm mới");
+        JButton btnLive = new JButton("Xem Live");
+        JButton btnSaveFrame = new JButton("Chụp ảnh");
         lblCount = new JLabel("0 máy");
         lblCount.setFont(new Font("Arial", Font.BOLD, 14));
         lblCount.setForeground(new Color(0, 100, 200));
         north.add(lblTitle);
         north.add(btnRefresh);
         north.add(lblCount);
+        north.add(btnLive);
+        north.add(btnSaveFrame);
         add(north, BorderLayout.NORTH);
 
         clientListModel = new DefaultListModel<>();
@@ -48,8 +56,34 @@ public class DashboardPanel extends JPanel {
         add(lblStatus, BorderLayout.SOUTH);
 
         btnRefresh.addActionListener(e -> tcpClient.sendCommand("REQ_CLIENT_LIST"));
+        
+        btnLive.addActionListener(e -> {
+            int idx = clientList.getSelectedIndex();
+            if (idx < 0 || currentClients == null || idx >= currentClients.size()) {
+                JOptionPane.showMessageDialog(this, "Chọn 1 client!");
+                return;
+            }
+            Map<String, Object> c = currentClients.get(idx);
+            String id = String.valueOf(c.get("id"));
+            String pcName = String.valueOf(c.get("pcName"));
+            new LivestreamDialog(
+                (JFrame) SwingUtilities.getWindowAncestor(this),
+                tcpClient, dispatcher, id, pcName);
+        });
+        
+        btnSaveFrame.addActionListener(e -> {
+            int idx = clientList.getSelectedIndex();
+            if (idx < 0 || currentClients == null || idx >= currentClients.size()) {
+                JOptionPane.showMessageDialog(this, "Chọn 1 client!");
+                return;
+            }
+            Map<String, Object> c = currentClients.get(idx);
+            String id = String.valueOf(c.get("id"));
+            tcpClient.sendCommand("SAVE_FRAME:" + id);
+            lblStatus.setText("Đã gửi lệnh lưu ảnh cho " + c.get("pcName"));
+        });
 
-        tcpClient.setMessageListener(this::handleServerMessage);
+        dispatcher.addHandler(this::handleServerMessage);
 
         tcpClient.sendCommand("REQ_CLIENT_LIST");
 
@@ -69,6 +103,7 @@ public class DashboardPanel extends JPanel {
         try {
             ObjectMapper mapper = new ObjectMapper();
             List<Map<String, Object>> clients = mapper.readValue(json, List.class);
+            currentClients = clients;
             clientListModel.clear();
             if (clients.isEmpty()) {
                 clientListModel.addElement("(Chưa có máy trạm nào kết nối)");

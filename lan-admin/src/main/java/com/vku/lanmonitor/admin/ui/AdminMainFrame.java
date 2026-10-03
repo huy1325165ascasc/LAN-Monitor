@@ -1,6 +1,7 @@
 package com.vku.lanmonitor.admin.ui;
 
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
+import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
@@ -8,22 +9,15 @@ import java.awt.event.WindowEvent;
 
 public class AdminMainFrame extends JFrame {
     private final AdminTcpClient tcpClient;
-    private final String username;
-    private JLabel lblStatus;
+    private final AdminMessageDispatcher dispatcher;
 
     public AdminMainFrame(AdminTcpClient tcpClient) {
-        this(tcpClient, "admin");
-    }
-
-    public AdminMainFrame(AdminTcpClient tcpClient, String username) {
         super("Admin Dashboard - LAN Monitor");
         this.tcpClient = tcpClient;
-        this.username = username;
+        this.dispatcher = new AdminMessageDispatcher();
+        
+        tcpClient.setMessageListener(dispatcher::dispatch);
 
-        initComponents();
-    }
-
-    private void initComponents() {
         setSize(1200, 800);
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         setLocationRelativeTo(null);
@@ -36,7 +30,6 @@ public class AdminMainFrame extends JFrame {
             }
         });
 
-        // Menu Bar
         JMenuBar menuBar = new JMenuBar();
         JMenu menuFile = new JMenu("File");
         JMenuItem itemExit = new JMenuItem("Thoát");
@@ -47,30 +40,25 @@ public class AdminMainFrame extends JFrame {
 
         setLayout(new BorderLayout());
 
-        // JTabbedPane
         JTabbedPane tabbedPane = new JTabbedPane();
         tabbedPane.setFont(new Font("Arial", Font.BOLD, 13));
 
-        // Tab 1: Dashboard
-        DashboardPanel dashboardPanel = new DashboardPanel(tcpClient);
+        DashboardPanel dashboardPanel = new DashboardPanel(tcpClient, dispatcher);
         tabbedPane.addTab("Dashboard", dashboardPanel);
 
-        // Tab 2: Quản lý đề thi
-        QuizEditorPanel quizEditorPanel = new QuizEditorPanel(tcpClient);
+        QuizEditorPanel quizEditorPanel = new QuizEditorPanel(tcpClient, dispatcher);
         tabbedPane.addTab("Quản lý đề thi", quizEditorPanel);
 
-        // Tab 3: Cấu hình
-        ConfigPanel configPanel = new ConfigPanel(tcpClient);
+        ConfigPanel configPanel = new ConfigPanel(tcpClient, dispatcher);
         tabbedPane.addTab("Cấu hình", configPanel);
 
         add(tabbedPane, BorderLayout.CENTER);
 
-        // SOUTH: Status bar
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 6));
         southPanel.setBackground(new Color(235, 238, 242));
         southPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(200, 205, 210)));
 
-        lblStatus = new JLabel("Admin: " + username + " | Đã kết nối server");
+        JLabel lblStatus = new JLabel("Admin: admin | Đã kết nối server");
         lblStatus.setFont(new Font("Arial", Font.PLAIN, 12));
         southPanel.add(lblStatus);
 

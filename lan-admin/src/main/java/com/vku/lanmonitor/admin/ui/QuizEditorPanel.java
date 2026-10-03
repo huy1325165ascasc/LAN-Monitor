@@ -1,6 +1,7 @@
 package com.vku.lanmonitor.admin.ui;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -15,7 +16,7 @@ public class QuizEditorPanel extends JPanel {
     private final JLabel lblStatus;
     private List<Map<String, Object>> quizzesData;
 
-    public QuizEditorPanel(AdminTcpClient tcpClient) {
+    public QuizEditorPanel(AdminTcpClient tcpClient, AdminMessageDispatcher dispatcher) {
         this.tcpClient = tcpClient;
         setLayout(new BorderLayout(5, 5));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -81,7 +82,7 @@ public class QuizEditorPanel extends JPanel {
         btnDelete.addActionListener(e -> deleteSelectedQuiz());
         btnRefresh.addActionListener(e -> tcpClient.sendCommand("REQ_QUIZ_ALL"));
 
-        tcpClient.setMessageListener(this::handleServerMessage);
+        dispatcher.addHandler(this::handleServerMessage);
 
         tcpClient.sendCommand("REQ_QUIZ_ALL");
     }
