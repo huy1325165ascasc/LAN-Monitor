@@ -49,3 +49,12 @@ logs/
 # Temp
 tmp/
 temp/
+
+# Archify diagrams (HTML lớn, không cần push)
+.archify/
+**/.archify/
+**/*-architecture.html
+**/*-sequence.html
+
+# Backup folders
+*_backup_phase*/
