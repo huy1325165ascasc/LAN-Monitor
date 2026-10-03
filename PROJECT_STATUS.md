@@ -1,8 +1,8 @@
 # 📊 LAN MONITOR — PROJECT STATUS
 
 ## 📌 Metadata
-- **Ngày cập nhật**: 2026-10-02 08:54:41
-- **Git HEAD**: d9902ed Phase 3D: replace Unicode marks with text labels for Windows compatibility
+- **Ngày cập nhật**: 2026-10-03 10:42:06
+- **Git HEAD**: f05c04a Phase 4D: ConfigPanel for whitelist management
 - **Người cập nhật**: xuanvinh
 
 ## 🏗️ Cấu trúc thư mục
@@ -15,7 +15,6 @@ F:\Do_An_Mang\
 ├── lan-client\        # Anti-cheat client (máy trạm)
 ├── storage\           # quizzes.json, exam_rules.json, results\
 ├── images\            # Ảnh gian lận cheat_*.jpg
-├── lan-student_backup_phase3D\  # Backup mới nhất trước Phase 4
 ├── ANALYSIS.md        # Phân tích kiến trúc
 ├── AI_CONTEXT.md      # Ngữ cảnh cho AI
 ├── PROJECT_STATUS.md  # File này
@@ -35,9 +34,9 @@ F:\Do_An_Mang\
 | 3C | TakeQuizFrame (timer + submit) | ✅ |
 | 3D | ResultFrame (điểm + chi tiết) | ✅ |
 | 4A | AdminApp + LoginFrame + skeleton | ✅ |
-| 4B | DashboardPanel (danh sách clients) | ⏳ Cần test |
-| 4C | Quiz Editor | ❌ Chưa làm |
-| 4D | Whitelist + Livestream | ❌ Chưa làm |
+| 4B | DashboardPanel (danh sách clients) | ✅ Đã test OK |
+| 4C | Quiz Editor | ✅ Đã test OK |
+| 4D | Whitelist + Livestream | ✅ Đã test OK |
 
 ## 🚀 Lệnh khởi động
 
@@ -70,16 +69,35 @@ REQ_CLIENT_LIST, SAVE_QUIZ, DELETE_QUIZ,
 CAPTURE, SEND_ALERT, UPDATE_WHITELIST_CONFIG
 ```
 
+## 🎯 AdminApp đã có 3 tab hoàn chỉnh
+
+### Tab 1: Dashboard
+- Hiển thị danh sách clients đang online realtime
+- Auto refresh mỗi 3 giây
+- Hiển thị: ID, IP, PC Name
+- Nút "Làm mới" thủ công
+
+### Tab 2: Quiz Editor
+- JTable hiển thị danh sách đề thi (ID, Tên, Thời gian, Số câu, Trạng thái)
+- Tạo đề thi mới (với JSON editor)
+- Sửa đề thi hiện có
+- Xóa đề thi (có xác nhận)
+- Nút "Làm mới" danh sách
+
+### Tab 3: Config
+- Quản lý Whitelist (danh sách app được phép)
+- TextArea nhập keywords (hỗ trợ dấu phẩy hoặc xuống dòng)
+- Nút "Tải lại" từ server
+- Nút "Lưu & Áp dụng" (gửi tới tất cả clients)
+
 ## ⚠️ Vấn đề tồn đọng
-- Test Phase 4B: Dashboard có hiển thị 2 clients không
 - Log server hiển thị tiếng Việt lỗi font: chạy `chcp 65001` trước khi start
 - Chưa test trên 2 máy LAN thật (hiện tại chạy localhost)
 
 ## 🎯 Bước tiếp theo
-1. Test Phase 4B (Dashboard hiển thị clients)
-2. Commit Phase 4A + 4B
-3. Làm Phase 4C: Quiz Editor
-4. Làm Phase 4D: Whitelist + Livestream
+1. Phase 4E (tùy chọn): Livestream viewer
+2. Hoặc: Chuẩn bị báo cáo + slide nộp bài
+3. Test tích hợp toàn bộ hệ thống trên mạng LAN thật
 
 ## 📝 Lịch sử thay đổi
 
@@ -89,6 +107,7 @@ CAPTURE, SEND_ALERT, UPDATE_WHITELIST_CONFIG
 | 2026-10-01 | Phase 2-3D: hoàn thành Exam System cho sinh viên |
 | 2026-10-01 | Phase 4A: Admin skeleton |
 | 2026-10-02 | Dọn dẹp dự án: xóa 5 backup cũ + 7 file rác, đổi tên lan-client, tạo PROJECT_STATUS.md |
+| 2026-10-03 | Phase 4B-4D: hoàn thành AdminApp với 3 tabs (Dashboard, Quiz Editor, Config) |
 
 ## 🧹 Dọn dẹp đã thực hiện (2026-10-02)
 
