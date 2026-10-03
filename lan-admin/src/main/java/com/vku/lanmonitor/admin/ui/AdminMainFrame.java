@@ -56,8 +56,8 @@ public class AdminMainFrame extends JFrame {
         tabbedPane.addTab("Dashboard", dashboardPanel);
 
         // Tab 2: Quản lý đề thi
-        JPanel pnlQuizManage = createPlaceholderPanel("Coming soon: Phase 4C");
-        tabbedPane.addTab("Quản lý đề thi", pnlQuizManage);
+        QuizEditorPanel quizEditorPanel = new QuizEditorPanel(tcpClient);
+        tabbedPane.addTab("Quản lý đề thi", quizEditorPanel);
 
         // Tab 3: Cấu hình
         JPanel pnlConfig = createPlaceholderPanel("Coming soon: Phase 4D");
