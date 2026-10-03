@@ -58,3 +58,6 @@ temp/
 
 # Backup folders
 *_backup_phase*/
+
+# Build outputs
+**/target/

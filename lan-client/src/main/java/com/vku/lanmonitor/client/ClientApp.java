@@ -16,7 +16,7 @@ public class ClientApp {
 
         // 2. Khởi tạo kết nối mạng (IP Server truyền vào hoặc mặc định 127.0.0.1)
         // String serverIp = (args.length > 0) ? args[0] : "127.0.0.1";
-        String serverIp = "10.54.144.242";
+        String serverIp = "localhost";
 
         int serverPort = 9999;
 
