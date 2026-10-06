@@ -33,6 +33,8 @@ import java.util.concurrent.Executors;
 @RequiredArgsConstructor
 public class TcpServerService implements CommandLineRunner {
 
+    private static final java.io.PrintStream OUT = new java.io.PrintStream(System.out, true, StandardCharsets.UTF_8);
+
     private static final String ADMIN_USER = "admin";
     private static final String DEFAULT_PASSWORD = "123456";
     private static final String STORAGE_DIR = "storage";
@@ -276,15 +278,15 @@ public class TcpServerService implements CommandLineRunner {
         }
 
         private void handleCapture(String target, PrintWriter out) {
-            System.out.println("[SERVER] CAPTURE command received for: " + target);
+            OUT.println("[SERVER] CAPTURE command received for: " + target);
             String resolved = resolveClientId(target);
-            System.out.println("[SERVER] Resolved to: " + resolved);
+            OUT.println("[SERVER] Resolved to: " + resolved);
             if (resolved == null) {
                 out.println("CAPTURE_FAIL:not_found");
                 return;
             }
             broadcastService.sendToClient(resolved, "CAPTURE_SCREEN");
-            System.out.println("[SERVER] Sent CAPTURE_SCREEN to " + resolved);
+            OUT.println("[SERVER] Sent CAPTURE_SCREEN to " + resolved);
         }
 
         private void handleSendAlert(String payload) {
@@ -313,7 +315,7 @@ public class TcpServerService implements CommandLineRunner {
         }
 
         private void handleScreen(String base64Image) {
-            System.out.println("[SERVER] SCREEN received, len=" + base64Image.length());
+            OUT.println("[SERVER] SCREEN received, len=" + base64Image.length());
             broadcastService.broadcastToAdmins("SCREEN_STREAM:" + connectionId + ":" + base64Image);
             if (clientId != null && captureRequests.getOrDefault(clientId, false)) {
                 captureRequests.put(clientId, false);
