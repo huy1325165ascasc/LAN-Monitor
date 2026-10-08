@@ -117,11 +117,16 @@ public class TcpServerService implements CommandLineRunner {
             } catch (Exception e) {
                 log.debug("Kết nối [{}] đóng: {}", connectionId, e.getMessage());
             } finally {
+                boolean wasRegistered = !"UNKNOWN".equals(role);
                 boolean wasClient = "CLIENT".equals(role);
-                activeClients.remove(clientId);
-                captureRequests.remove(clientId);
-                broadcastService.unregister(connectionId);
-                broadcastService.unregister(clientId);
+                
+                if (wasRegistered) {
+                    activeClients.remove(clientId);
+                    captureRequests.remove(clientId);
+                    broadcastService.unregister(connectionId);
+                    broadcastService.unregister(clientId);
+                }
+                
                 if (wasClient) {
                     broadcastClientList();
                 }

@@ -20,11 +20,12 @@ public class ProcessManager {
     }
 
     public boolean isPortInUse(int port) {
-        try (java.net.Socket s = new java.net.Socket()) {
-            s.connect(new java.net.InetSocketAddress("localhost", port), 500);
-            return true;
-        } catch (Exception e) {
+        try (java.net.ServerSocket ss = new java.net.ServerSocket(port)) {
+            // Nếu bind được → port đang free → không có server
             return false;
+        } catch (java.io.IOException e) {
+            // Bind không được → port đang bị chiếm → có server
+            return true;
         }
     }
 
