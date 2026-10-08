@@ -1,5 +1,6 @@
 package com.vku.lanmonitor.client.service;
 
+import com.vku.lanmonitor.client.CameraCaptureUtil;
 import com.vku.lanmonitor.client.util.ActiveWindowUtil;
 import com.vku.lanmonitor.client.util.ScreenCaptureUtil;
 
@@ -29,8 +30,12 @@ public class SocketClientService {
     private boolean isRunning = false; // Biến cờ để điều khiển vòng lặp
     private String lastAlertTab = "";
     private ScheduledExecutorService monitorScheduler;
+    private ScheduledExecutorService webcamScheduler;
 
     private List<String> whitelist = new ArrayList<>();
+    private boolean cameraAvailable = false;
+
+    private static final int WEBCAM_CAPTURE_INTERVAL_SECONDS = 10;
 
     // Thêm studentId vào Constructor
     public SocketClientService(String serverIp, int serverPort, String studentId) {
@@ -40,6 +45,9 @@ public class SocketClientService {
     }
 
     public void start() {
+        // Kiểm tra webcam 1 lần khi khởi động
+        checkCameraAvailability();
+
         while (true) {
             try {
                 System.out.println("Connecting to Server [" + serverIp + ":" + serverPort + "]...");
@@ -56,6 +64,9 @@ public class SocketClientService {
                 // Bật luồng soi màn hình
                 startBehaviorMonitor();
 
+                // Bật luồng chụp webcam định kỳ (nếu có camera)
+                startWebcamCapture();
+
                 String line;
                 // Liên tục lắng nghe lệnh từ Thầy giáo (như Lệnh chụp ảnh, Cập nhật luật thi)
                 while (isRunning && (line = in.readLine()) != null) {
@@ -71,6 +82,77 @@ public class SocketClientService {
                 }
             }
         }
+    }
+
+    /**
+     * Kiểm tra webcam có sẵn không khi khởi động.
+     * Nếu có, mở sẵn camera để chụp nhanh hơn.
+     */
+    private void checkCameraAvailability() {
+        System.out.println("[WEBCAM] Checking camera availability...");
+        cameraAvailable = CameraCaptureUtil.isCameraAvailable();
+        if (cameraAvailable) {
+            boolean opened = CameraCaptureUtil.openCamera();
+            System.out.println("[WEBCAM] Camera found and " + (opened ? "opened" : "failed to open"));
+            cameraAvailable = opened;
+        } else {
+            System.out.println("[WEBCAM] No camera detected - webcam features disabled");
+        }
+    }
+
+    /**
+     * Bật luồng chụp webcam định kỳ mỗi 10 giây.
+     * Gửi ảnh mặt sinh viên về server qua lệnh WEBCAM:<base64>.
+     */
+    private void startWebcamCapture() {
+        if (!cameraAvailable) {
+            System.out.println("[WEBCAM] Skipping webcam capture - no camera available");
+            return;
+        }
+
+        webcamScheduler = Executors.newSingleThreadScheduledExecutor();
+        webcamScheduler.scheduleAtFixedRate(() -> {
+            try {
+                if (!isRunning || out == null) return;
+
+                String base64 = CameraCaptureUtil.captureBase64Jpeg();
+                if (base64 != null && !base64.isEmpty()) {
+                    out.println("WEBCAM:" + base64);
+                    System.out.println("[WEBCAM] Sent webcam snapshot, base64 len=" + base64.length());
+                }
+            } catch (Exception e) {
+                System.err.println("[WEBCAM] Capture error: " + e.getMessage());
+            }
+        }, 2, WEBCAM_CAPTURE_INTERVAL_SECONDS, TimeUnit.SECONDS);
+
+        System.out.println("[WEBCAM] Started periodic capture every " + WEBCAM_CAPTURE_INTERVAL_SECONDS + "s");
+    }
+
+    /**
+     * Ghi clip webcam 5 giây trong background thread.
+     * Gửi kết quả về server qua lệnh WEBCAM_CLIP:<base64 frames>.
+     */
+    private void recordAndSendClip() {
+        if (!cameraAvailable) {
+            System.out.println("[WEBCAM] Cannot record clip - no camera available");
+            return;
+        }
+
+        // Ghi clip trong thread riêng để không block luồng đọc lệnh
+        new Thread(() -> {
+            try {
+                System.out.println("[WEBCAM] Recording 5s clip...");
+                String clipData = CameraCaptureUtil.recordClipAsString();
+                if (clipData != null && !clipData.isEmpty() && out != null) {
+                    out.println("WEBCAM_CLIP:" + clipData);
+                    System.out.println("[WEBCAM] Sent clip data, total len=" + clipData.length());
+                } else {
+                    System.out.println("[WEBCAM] Clip recording returned empty");
+                }
+            } catch (Exception e) {
+                System.err.println("[WEBCAM] Clip recording error: " + e.getMessage());
+            }
+        }, "webcam-clip-recorder").start();
     }
 
     private void startBehaviorMonitor() {
@@ -129,6 +211,22 @@ public class SocketClientService {
                 System.out.println("[CLIENT] Sending SCREEN, base64 len=" + base64.length());
                 out.println("SCREEN:" + base64);
             }
+        } else if ("CAPTURE_WEBCAM".equals(command)) {
+            // Admin yêu cầu chụp webcam ngay lập tức
+            System.out.println("[CLIENT] CAPTURE_WEBCAM received!");
+            if (cameraAvailable) {
+                String base64 = CameraCaptureUtil.captureBase64Jpeg();
+                if (base64 != null) {
+                    out.println("WEBCAM:" + base64);
+                    System.out.println("[CLIENT] Sent webcam snapshot on demand");
+                }
+            } else {
+                System.out.println("[CLIENT] No camera available for CAPTURE_WEBCAM");
+            }
+        } else if ("RECORD_WEBCAM".equals(command)) {
+            // Server yêu cầu ghi clip 5 giây (khi phát hiện hành vi nghi ngờ)
+            System.out.println("[CLIENT] RECORD_WEBCAM received! Starting 5s clip recording...");
+            recordAndSendClip();
         } else if (command.startsWith("UPDATE_WHITELIST:")) {
             // Cập nhật luật thi
             String keywordsStr = command.substring(17);
@@ -141,6 +239,8 @@ public class SocketClientService {
         isRunning = false;
         if (monitorScheduler != null)
             monitorScheduler.shutdownNow();
+        if (webcamScheduler != null)
+            webcamScheduler.shutdownNow();
         try {
             if (in != null)
                 in.close();

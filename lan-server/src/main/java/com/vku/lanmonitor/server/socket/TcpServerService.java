@@ -79,6 +79,8 @@ public class TcpServerService implements CommandLineRunner {
             log.info(">>> Đã mở cổng 9999 đón sinh viên vào thi <<<");
 
             Files.createDirectories(Paths.get("images"));
+            Files.createDirectories(Paths.get("images", "webcam_clips"));
+            Files.createDirectories(Paths.get("images", "webcam_snapshots"));
             Files.createDirectories(Paths.get(STORAGE_DIR));
 
             while (isRunning) {
@@ -169,6 +171,12 @@ public class TcpServerService implements CommandLineRunner {
                     handleUpdateWhitelist(payload(line, "UPDATE_WHITELIST_CONFIG:"), out);
                 } else if (line.startsWith("SCREEN:")) {
                     handleScreen(payload(line, "SCREEN:"));
+                } else if (line.startsWith("WEBCAM:")) {
+                    handleWebcam(payload(line, "WEBCAM:"));
+                } else if (line.startsWith("WEBCAM_CLIP:")) {
+                    handleWebcamClip(payload(line, "WEBCAM_CLIP:"));
+                } else if (line.startsWith("CAPTURE_WEBCAM:")) {
+                    handleCaptureWebcam(payload(line, "CAPTURE_WEBCAM:"), out);
                 } else if (line.startsWith("SUSPICIOUS:")) {
                     handleSuspicious(payload(line, "SUSPICIOUS:"));
                 } else {
@@ -332,6 +340,80 @@ public class TcpServerService implements CommandLineRunner {
             ClientSession session = activeClients.get(clientId);
             String pcName = session != null ? session.getPcName() : clientId;
             broadcastService.broadcastToAdmins("SUSPICIOUS:" + clientId + "|" + pcName + "|" + payload);
+
+            // Tự động yêu cầu client ghi clip webcam 5s khi phát hiện hành vi nghi ngờ
+            broadcastService.sendToClient(clientId, "RECORD_WEBCAM");
+            OUT.println("[SERVER] Auto-triggered RECORD_WEBCAM for " + clientId + " due to suspicious activity");
+        }
+
+        /**
+         * Xử lý ảnh webcam chụp định kỳ từ client.
+         * Forward ảnh đến tất cả admin để xem realtime.
+         * Lưu snapshot vào thư mục images/webcam_snapshots/ (ghi đè mỗi client).
+         */
+        private void handleWebcam(String base64Image) {
+            OUT.println("[SERVER] WEBCAM received from [" + connectionId + "], len=" + base64Image.length());
+            // Broadcast ảnh webcam đến tất cả admin (giống SCREEN_STREAM)
+            broadcastService.broadcastToAdmins("WEBCAM_STREAM:" + connectionId + ":" + base64Image);
+
+            // Lưu snapshot mới nhất (ghi đè file cũ theo clientId)
+            try {
+                String safeId = clientId.replace(":", "_").replace("/", "_");
+                String fName = "webcam_" + safeId + ".jpg";
+                Files.write(Paths.get("images", "webcam_snapshots", fName),
+                        Base64.getDecoder().decode(base64Image));
+            } catch (Exception e) {
+                log.error("Lỗi lưu webcam snapshot: ", e);
+            }
+        }
+
+        /**
+         * Xử lý clip webcam 5s từ client (khi bị trigger bởi hành vi nghi ngờ).
+         * Clip gồm nhiều frame JPEG nối bằng "|||".
+         * Lưu từng frame vào thư mục images/webcam_clips/<clientId>_<timestamp>/
+         */
+        private void handleWebcamClip(String clipData) {
+            OUT.println("[SERVER] WEBCAM_CLIP received from [" + connectionId + "], total len=" + clipData.length());
+
+            // Thông báo cho admin biết có clip mới
+            ClientSession session = activeClients.get(clientId);
+            String pcName = session != null ? session.getPcName() : clientId;
+            broadcastService.broadcastToAdmins(
+                    "WEBCAM_CLIP_READY:" + clientId + "|" + pcName + "|" + System.currentTimeMillis());
+
+            // Lưu từng frame vào disk
+            try {
+                String safeId = clientId.replace(":", "_").replace("/", "_");
+                String dirName = "clip_" + safeId + "_" + System.currentTimeMillis();
+                java.nio.file.Path clipDir = Paths.get("images", "webcam_clips", dirName);
+                Files.createDirectories(clipDir);
+
+                String[] frames = clipData.split("\\|\\|\\|");
+                for (int i = 0; i < frames.length; i++) {
+                    if (frames[i] != null && !frames[i].isEmpty()) {
+                        String frameName = String.format("frame_%03d.jpg", i);
+                        Files.write(clipDir.resolve(frameName),
+                                Base64.getDecoder().decode(frames[i]));
+                    }
+                }
+                OUT.println("[SERVER] Saved " + frames.length + " clip frames to " + clipDir);
+            } catch (Exception e) {
+                log.error("Lỗi lưu webcam clip: ", e);
+            }
+        }
+
+        /**
+         * Admin yêu cầu chụp webcam ngay lập tức cho 1 client cụ thể.
+         */
+        private void handleCaptureWebcam(String target, PrintWriter out) {
+            OUT.println("[SERVER] CAPTURE_WEBCAM command received for: " + target);
+            String resolved = resolveClientId(target);
+            if (resolved == null) {
+                out.println("CAPTURE_WEBCAM_FAIL:not_found");
+                return;
+            }
+            broadcastService.sendToClient(resolved, "CAPTURE_WEBCAM");
+            OUT.println("[SERVER] Sent CAPTURE_WEBCAM to " + resolved);
         }
     }
 

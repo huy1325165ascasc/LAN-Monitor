@@ -31,6 +31,11 @@ public class DashboardPanel extends JPanel {
         lblTitle.setFont(new Font("Arial", Font.BOLD, 16));
         JButton btnRefresh = new JButton("Làm mới");
         JButton btnLive = new JButton("Xem Live");
+        JButton btnWebcam = new JButton("Xem Webcam");
+        btnWebcam.setBackground(new Color(25, 120, 80));
+        btnWebcam.setForeground(Color.WHITE);
+        btnWebcam.setOpaque(true);
+        btnWebcam.setBorderPainted(false);
         JButton btnSaveFrame = new JButton("Chụp ảnh");
         lblCount = new JLabel("0 máy");
         lblCount.setFont(new Font("Arial", Font.BOLD, 14));
@@ -39,6 +44,7 @@ public class DashboardPanel extends JPanel {
         north.add(btnRefresh);
         north.add(lblCount);
         north.add(btnLive);
+        north.add(btnWebcam);
         north.add(btnSaveFrame);
         add(north, BorderLayout.NORTH);
 
@@ -81,6 +87,20 @@ public class DashboardPanel extends JPanel {
             String id = String.valueOf(c.get("id"));
             tcpClient.sendCommand("SAVE_FRAME:" + id);
             lblStatus.setText("Đã gửi lệnh lưu ảnh cho " + c.get("pcName"));
+        });
+
+        btnWebcam.addActionListener(e -> {
+            int idx = clientList.getSelectedIndex();
+            if (idx < 0 || currentClients == null || idx >= currentClients.size()) {
+                JOptionPane.showMessageDialog(this, "Chọn 1 client!");
+                return;
+            }
+            Map<String, Object> c = currentClients.get(idx);
+            String id = String.valueOf(c.get("id"));
+            String pcNameVal = String.valueOf(c.get("pcName"));
+            new WebcamDialog(
+                (JFrame) SwingUtilities.getWindowAncestor(this),
+                tcpClient, dispatcher, id, pcNameVal);
         });
 
         dispatcher.addHandler(this::handleServerMessage);
