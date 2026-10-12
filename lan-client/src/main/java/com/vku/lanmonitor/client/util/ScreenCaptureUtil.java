@@ -22,4 +22,15 @@ public class ScreenCaptureUtil {
             return new byte[0];
         }
     }
+
+    public static BufferedImage captureScreen() {
+        try {
+            Robot robot = new Robot();
+            Rectangle screenRect = new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
+            return robot.createScreenCapture(screenRect);
+        } catch (Exception e) {
+            System.err.println("Lỗi khi chụp màn hình: " + e.getMessage());
+            return new BufferedImage(640, 480, BufferedImage.TYPE_INT_RGB);
+        }
+    }
 }

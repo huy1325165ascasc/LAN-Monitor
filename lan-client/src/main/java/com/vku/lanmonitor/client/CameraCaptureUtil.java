@@ -1,6 +1,7 @@
 package com.vku.lanmonitor.client;
 
 import com.github.sarxos.webcam.Webcam;
+import com.vku.lanmonitor.client.util.ScreenCaptureUtil;
 
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -24,28 +25,56 @@ import java.util.concurrent.*;
 public class CameraCaptureUtil {
 
     private static Webcam sharedWebcam = null;
-    private static final Object WEBCAM_LOCK = new Object();
+    private static final Object CAMERA_LOCK = new Object();
 
     /**
      * Check if a webcam is available on this machine.
      * Uses timeout to avoid blocking if webcam driver is unresponsive.
      */
     public static boolean isCameraAvailable() {
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try {
-            Future<Boolean> future = executor.submit(() -> {
-                try {
-                    return Webcam.getDefault() != null;
-                } catch (Throwable e) {
-                    return false;
+        synchronized (CAMERA_LOCK) {
+            ExecutorService executor = Executors.newSingleThreadExecutor();
+            try {
+                Future<Boolean> future = executor.submit(() -> {
+                    try {
+                        return Webcam.getDefault() != null;
+                    } catch (Throwable e) {
+                        return false;
+                    }
+                });
+                Boolean result = future.get(3, TimeUnit.SECONDS);
+                return result != null && result;
+            } catch (Throwable e) {
+                return false;
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+    }
+
+    /**
+     * Capture a single frame from webcam (or screen fallback).
+     * Returns BufferedImage for direct use.
+     */
+    public static BufferedImage captureFrame() {
+        synchronized (CAMERA_LOCK) {
+            try {
+                if (sharedWebcam == null || !sharedWebcam.isOpen()) {
+                    if (!openCamera()) {
+                        System.out.println("[CAMERA] No webcam, using screen capture");
+                        return ScreenCaptureUtil.captureScreen();
+                    }
                 }
-            });
-            Boolean result = future.get(3, TimeUnit.SECONDS);
-            return result != null && result;
-        } catch (Throwable e) {
-            return false;
-        } finally {
-            executor.shutdownNow();
+                BufferedImage image = sharedWebcam.getImage();
+                if (image == null) {
+                    System.out.println("[CAMERA] Webcam image null, using screen capture");
+                    return ScreenCaptureUtil.captureScreen();
+                }
+                return image;
+            } catch (Throwable e) {
+                System.err.println("[CAMERA] Capture failed: " + e.getMessage());
+                return ScreenCaptureUtil.captureScreen();
+            }
         }
     }
 
@@ -54,7 +83,7 @@ public class CameraCaptureUtil {
      * Call this once during startup, then use captureBase64Jpeg() for snapshots.
      */
     public static boolean openCamera() {
-        synchronized (WEBCAM_LOCK) {
+        synchronized (CAMERA_LOCK) {
             try {
                 if (sharedWebcam != null && sharedWebcam.isOpen()) {
                     return true;
@@ -76,7 +105,7 @@ public class CameraCaptureUtil {
      * Close the shared webcam instance. Call on shutdown.
      */
     public static void closeCamera() {
-        synchronized (WEBCAM_LOCK) {
+        synchronized (CAMERA_LOCK) {
             try {
                 if (sharedWebcam != null && sharedWebcam.isOpen()) {
                     sharedWebcam.close();
@@ -89,27 +118,25 @@ public class CameraCaptureUtil {
     }
 
     /**
-     * Capture a single webcam frame and return as Base64-encoded JPEG string.
-     * Image is resized to 640x480 and compressed at 0.7 quality for network efficiency.
-     *
-     * @return Base64 JPEG string, or null if capture fails
+     * Capture a single frame (webcam or screen) and return as Base64 JPEG.
+     * If no webcam is available, uses screen capture.
      */
     public static String captureBase64Jpeg() {
-        synchronized (WEBCAM_LOCK) {
+        synchronized (CAMERA_LOCK) {
             try {
                 if (sharedWebcam == null || !sharedWebcam.isOpen()) {
                     if (!openCamera()) {
-                        return null;
+                        return encodeImageToBase64(ScreenCaptureUtil.captureScreen(), 640, 480, 0.7f);
                     }
                 }
                 BufferedImage image = sharedWebcam.getImage();
                 if (image == null) {
-                    return null;
+                    return encodeImageToBase64(ScreenCaptureUtil.captureScreen(), 640, 480, 0.7f);
                 }
                 return encodeImageToBase64(image, 640, 480, 0.7f);
             } catch (Throwable e) {
                 System.err.println("[CAMERA] Capture failed: " + e.getMessage());
-                return null;
+                return encodeImageToBase64(ScreenCaptureUtil.captureScreen(), 640, 480, 0.7f);
             }
         }
     }
@@ -118,8 +145,7 @@ public class CameraCaptureUtil {
      * Record a short video clip (approximately 5 seconds) from webcam.
      * Captures frames at ~5 FPS, encodes each as compressed JPEG,
      * and returns a list of Base64-encoded frames.
-     *
-     * The server will reassemble these frames or save them individually.
+     * If no webcam is available, uses screen capture.
      *
      * @param durationSeconds how many seconds to record (default 5)
      * @param fps target frames per second (default 5)
@@ -127,10 +153,16 @@ public class CameraCaptureUtil {
      */
     public static List<String> recordClipFrames(int durationSeconds, int fps) {
         List<String> frames = new ArrayList<>();
-        synchronized (WEBCAM_LOCK) {
+        synchronized (CAMERA_LOCK) {
             try {
                 if (sharedWebcam == null || !sharedWebcam.isOpen()) {
                     if (!openCamera()) {
+                        // Fallback: record screen capture frames
+                        System.out.println("[CAMERA] No webcam, recording screen capture clip...");
+                        for (int i = 0; i < durationSeconds * fps; i++) {
+                            frames.add(encodeImageToBase64(ScreenCaptureUtil.captureScreen(), 320, 240, 0.5f));
+                            Thread.sleep(1000L / fps);
+                        }
                         return frames;
                     }
                 }

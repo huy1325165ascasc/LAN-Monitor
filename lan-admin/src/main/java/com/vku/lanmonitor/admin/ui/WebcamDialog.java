@@ -140,7 +140,7 @@ public class WebcamDialog extends JDialog {
     }
 
     private void handleServerMessage(String message) {
-        if (message.startsWith("WEBCAM_STREAM:")) {
+            if (message.startsWith("WEBCAM_STREAM:")) {
             String rest = message.substring("WEBCAM_STREAM:".length());
             int firstColon = rest.indexOf(':');
             if (firstColon < 0) return;
@@ -151,7 +151,7 @@ public class WebcamDialog extends JDialog {
                 return;
             }
             String base64 = rest.substring(secondColon + 1);
-            SwingUtilities.invokeLater(() -> updateImage(base64));
+            SwingUtilities.invokeLater(() -> updateImage(base64, false));
         } else if (message.startsWith("WEBCAM_CLIP_READY:")) {
             // Thông báo clip đã được lưu trên server
             String payload = message.substring("WEBCAM_CLIP_READY:".length());
@@ -166,7 +166,7 @@ public class WebcamDialog extends JDialog {
         }
     }
 
-    private void updateImage(String base64) {
+    private void updateImage(String base64, boolean screenMode) {
         try {
             byte[] bytes = Base64.getDecoder().decode(base64);
             BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
@@ -176,6 +176,9 @@ public class WebcamDialog extends JDialog {
             int lh = imageLabel.getHeight();
             if (lw <= 0 || lh <= 0) {
                 imageLabel.setIcon(new ImageIcon(img));
+                if (screenMode) {
+                    imageLabel.setText("📷 SCREEN CAPTURE (No Webcam)");
+                }
                 return;
             }
             double scale = Math.min((double) lw / img.getWidth(),
@@ -184,8 +187,12 @@ public class WebcamDialog extends JDialog {
             int nh = (int) (img.getHeight() * scale);
             Image scaled = img.getScaledInstance(nw, nh, Image.SCALE_FAST);
             imageLabel.setIcon(new ImageIcon(scaled));
-            imageLabel.setText("");
-            statusLabel.setText("📷 Webcam cập nhật: " + new java.text.SimpleDateFormat("HH:mm:ss")
+            if (screenMode) {
+                imageLabel.setText("📷 SCREEN CAPTURE (No Webcam)");
+            } else {
+                imageLabel.setText("");
+            }
+            statusLabel.setText("📷 Ảnh đã cập nhật: " + new java.text.SimpleDateFormat("HH:mm:ss")
                     .format(new java.util.Date()));
         } catch (Exception e) {
             statusLabel.setText("Lỗi decode ảnh webcam: " + e.getMessage());

@@ -28,6 +28,8 @@ public class SocketClientService {
     private PrintWriter out;
     private BufferedReader in;
     private boolean isRunning = false; // Biến cờ để điều khiển vòng lặp
+    private volatile boolean isConnected = false;
+    private volatile boolean shouldStop = false;
     private String lastAlertTab = "";
     private ScheduledExecutorService monitorScheduler;
     private ScheduledExecutorService webcamScheduler;
@@ -36,6 +38,8 @@ public class SocketClientService {
     private boolean cameraAvailable = false;
 
     private static final int WEBCAM_CAPTURE_INTERVAL_SECONDS = 10;
+    private long lastRecordTime = 0;
+    private static final long RECORD_COOLDOWN_MS = 30000;
 
     // Thêm studentId vào Constructor
     public SocketClientService(String serverIp, int serverPort, String studentId) {
@@ -45,43 +49,59 @@ public class SocketClientService {
     }
 
     public void start() {
+        System.out.println("[CLIENT] === start() BEGIN ===");
         // Kiểm tra webcam 1 lần khi khởi động
         checkCameraAvailability();
 
-        while (true) {
+        // Start schedulers ONCE, not inside the loop
+        startBehaviorMonitor();
+        System.out.println("[CLIENT] Monitor scheduler OK");
+        startWebcamCapture();
+        System.out.println("[CLIENT] Webcam scheduler OK");
+
+        while (!shouldStop) {
             try {
                 System.out.println("Connecting to Server [" + serverIp + ":" + serverPort + "]...");
                 socket = new Socket(serverIp, serverPort);
-                isRunning = true;
-                System.out.println(">>> Connect server complete <<<");
-
                 out = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
                 in = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                isConnected = true;
+                System.out.println("[CLIENT] TCP connected, isConnected=true");
 
                 // QUAN TRỌNG NHẤT: Báo danh với Server ngay khi vừa kết nối!
                 out.println("CONNECT:" + studentId);
-
-                // Bật luồng soi màn hình
-                startBehaviorMonitor();
-
-                // Bật luồng chụp webcam định kỳ (nếu có camera)
-                startWebcamCapture();
+                out.flush();
+                System.out.println("[CLIENT] CONNECT sent");
 
                 String line;
                 // Liên tục lắng nghe lệnh từ Thầy giáo (như Lệnh chụp ảnh, Cập nhật luật thi)
-                while (isRunning && (line = in.readLine()) != null) {
+                while (isConnected && !shouldStop && (line = in.readLine()) != null) {
                     handleCommand(line);
                 }
             } catch (Exception e) {
-                System.err.println("Disconnect: " + e.getMessage() + ". Retry after 5s...");
+                System.err.println("[CLIENT] Connection error: " + e.getMessage());
             } finally {
-                cleanup();
+                isConnected = false;
+                System.out.println("[CLIENT] Connection closed");
+                cleanupConnection(); // reset socket/out/in
+            }
+
+            if (!shouldStop) {
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(3000);
                 } catch (InterruptedException ignored) {
                 }
             }
         }
+    }
+
+    private void cleanupConnection() {
+        try { if (in != null) in.close(); } catch (Exception ignored) {}
+        try { if (out != null) out.close(); } catch (Exception ignored) {}
+        try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+        out = null;
+        socket = null;
+        in = null;
     }
 
     /**
@@ -105,27 +125,39 @@ public class SocketClientService {
      * Gửi ảnh mặt sinh viên về server qua lệnh WEBCAM:<base64>.
      */
     private void startWebcamCapture() {
-        if (!cameraAvailable) {
-            System.out.println("[WEBCAM] Skipping webcam capture - no camera available");
-            return;
-        }
-
+        System.out.println("[WEBCAM] === Scheduler START ===");
         webcamScheduler = Executors.newSingleThreadScheduledExecutor();
         webcamScheduler.scheduleAtFixedRate(() -> {
             try {
-                if (!isRunning || out == null) return;
+                System.out.println("[WEBCAM] Tick - isConnected=" + isConnected
+                    + ", out=" + (out != null)
+                    + ", socket=" + (socket != null));
 
-                String base64 = CameraCaptureUtil.captureBase64Jpeg();
-                if (base64 != null && !base64.isEmpty()) {
-                    out.println("WEBCAM:" + base64);
-                    System.out.println("[WEBCAM] Sent webcam snapshot, base64 len=" + base64.length());
+                if (!isConnected || out == null || socket == null
+                    || socket.isClosed() || !socket.isConnected()) {
+                    System.out.println("[WEBCAM] SKIP - connection not ready");
+                    return;
                 }
-            } catch (Exception e) {
-                System.err.println("[WEBCAM] Capture error: " + e.getMessage());
-            }
-        }, 2, WEBCAM_CAPTURE_INTERVAL_SECONDS, TimeUnit.SECONDS);
 
-        System.out.println("[WEBCAM] Started periodic capture every " + WEBCAM_CAPTURE_INTERVAL_SECONDS + "s");
+                System.out.println("[WEBCAM] Capturing frame...");
+                String base64 = CameraCaptureUtil.captureBase64Jpeg();
+
+                if (base64 == null || base64.isEmpty()) {
+                    System.out.println("[WEBCAM] Capture returned null/empty");
+                    return;
+                }
+
+                System.out.println("[WEBCAM] Captured, base64 len=" + base64.length());
+                out.println("WEBCAM:" + base64);
+                out.flush();
+                System.out.println("[WEBCAM] Sent WEBCAM to server");
+            } catch (Exception e) {
+                System.err.println("[WEBCAM] ERROR: " + e.getClass().getName()
+                    + ": " + e.getMessage());
+                e.printStackTrace();
+            }
+        }, 5, 10, TimeUnit.SECONDS);
+        System.out.println("[WEBCAM] Scheduler started (delay 5s, interval 10s)");
     }
 
     /**
@@ -223,9 +255,17 @@ public class SocketClientService {
             } else {
                 System.out.println("[CLIENT] No camera available for CAPTURE_WEBCAM");
             }
-        } else if ("RECORD_WEBCAM".equals(command)) {
-            // Server yêu cầu ghi clip 5 giây (khi phát hiện hành vi nghi ngờ)
-            System.out.println("[CLIENT] RECORD_WEBCAM received! Starting 5s clip recording...");
+        } else if (command.equals("RECORD_WEBCAM") || command.startsWith("RECORD_WEBCAM:")) {
+            long now = System.currentTimeMillis();
+            long elapsed = now - lastRecordTime;
+            if (elapsed < RECORD_COOLDOWN_MS) {
+                long remaining = (RECORD_COOLDOWN_MS - elapsed) / 1000;
+                System.out.println("[CLIENT] Skipping RECORD_WEBCAM (cooldown, "
+                    + remaining + "s remaining)");
+                return;
+            }
+            lastRecordTime = now;
+            System.out.println("[CLIENT] RECORD_WEBCAM received! Starting 5s clip...");
             recordAndSendClip();
         } else if (command.startsWith("UPDATE_WHITELIST:")) {
             // Cập nhật luật thi

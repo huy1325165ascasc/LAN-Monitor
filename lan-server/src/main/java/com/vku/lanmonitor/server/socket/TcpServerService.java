@@ -3,6 +3,7 @@ package com.vku.lanmonitor.server.socket;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vku.lanmonitor.server.model.ClientSession;
 import com.vku.lanmonitor.server.service.QuizService;
+import com.vku.lanmonitor.server.util.VideoEncoderUtil;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +28,10 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.jcodec.api.JCodecException;
+import org.jcodec.common.io.NIOUtils;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 
 @Slf4j
 @Service
@@ -177,7 +182,10 @@ public class TcpServerService implements CommandLineRunner {
                 } else if (line.startsWith("SCREEN:")) {
                     handleScreen(payload(line, "SCREEN:"));
                 } else if (line.startsWith("WEBCAM:")) {
-                    handleWebcam(payload(line, "WEBCAM:"));
+                    String base64Image = payload(line, "WEBCAM:");
+                    System.out.println("[SERVER] WEBCAM received from " + connectionId + ", base64 len=" + base64Image.length());
+                    handleWebcam(base64Image);
+                    System.out.println("[SERVER] WEBCAM_STREAM forwarded to admins");
                 } else if (line.startsWith("WEBCAM_CLIP:")) {
                     handleWebcamClip(payload(line, "WEBCAM_CLIP:"));
                 } else if (line.startsWith("CAPTURE_WEBCAM:")) {
@@ -402,6 +410,20 @@ public class TcpServerService implements CommandLineRunner {
                     }
                 }
                 OUT.println("[SERVER] Saved " + frames.length + " clip frames to " + clipDir);
+
+                // Encode frames thành clip.mp4 trong background thread
+                java.nio.file.Path videoFile = clipDir.resolve("clip.mp4");
+                File clipDirFile = clipDir.toFile();
+                File videoFileObj = videoFile.toFile();
+                new Thread(() -> {
+                    boolean ok = VideoEncoderUtil.encodeFramesToMp4(clipDirFile, videoFileObj);
+                    if (ok) {
+                        log.info("[SERVER] Video clip tao thanh cong: {}", videoFileObj.getAbsolutePath());
+                        broadcastService.broadcastToAdmins("VIDEO_READY:" + clipDir.getFileName().toString());
+                    } else {
+                        log.warn("[SERVER] Tao video that bai cho clip: {}", clipDir.getFileName().toString());
+                    }
+                }, "VideoEncoder-" + clipDir.getFileName().toString()).start();
             } catch (Exception e) {
                 log.error("Lỗi lưu webcam clip: ", e);
             }
