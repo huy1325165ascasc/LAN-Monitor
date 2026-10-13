@@ -13,7 +13,7 @@ import java.io.IOException;
  */
 public class LeftSidebarPanel extends JPanel {
 
-    private static final int SIDEBAR_WIDTH = 280;
+    private static final int SIDEBAR_WIDTH = 380;
 
     private final ProcessManager processManager;
     private JLabel serverStatusBadge;
@@ -44,9 +44,9 @@ public class LeftSidebarPanel extends JPanel {
         content.add(Box.createVerticalStrut(16));
         content.add(createSectionHeader("APP LAUNCHER"));
         content.add(Box.createVerticalStrut(8));
-        content.add(createAppCard("Student App", "lan-student", "lan-student-1.0.0-jar-with-dependencies.jar"));
+        content.add(createAppCard("Student App", "Sinh vien lam bai thi trac nghiem", "lan-student", "lan-student-1.0.0-jar-with-dependencies.jar", LanMonitorTheme.GREEN_BTN, "STU"));
         content.add(Box.createVerticalStrut(6));
-        content.add(createAppCard("Anti-cheat Client", "lan-client", "lan-client-1.0.0-jar-with-dependencies.jar"));
+        content.add(createAppCard("Anti-cheat Client", "Giam sat may, chup man hinh", "lan-client", "lan-client-1.0.0-jar-with-dependencies.jar", LanMonitorTheme.ORANGE_BTN, "SEC"));
 
         JScrollPane scrollPane = new JScrollPane(content);
         scrollPane.setBorder(null);
@@ -114,7 +114,8 @@ public class LeftSidebarPanel extends JPanel {
 
         btnStart = LanMonitorTheme.createPrimaryButton("Start Server", LanMonitorTheme.GREEN_BTN);
         btnStop = LanMonitorTheme.createPrimaryButton("Stop Server", LanMonitorTheme.RED_BTN);
-        btnClearLog = LanMonitorTheme.createSecondaryButton("Xoa log", LanMonitorTheme.DARK_CARD_HOVER);
+        btnClearLog = LanMonitorTheme.createSecondaryButton("X  Xoa log", LanMonitorTheme.DARK_CARD_HOVER);
+        btnClearLog.setPreferredSize(new Dimension(340, 40));
         btnStartAll = createStartAllButton();
 
         btnStart.addActionListener(e -> startServerFlow());
@@ -141,48 +142,74 @@ public class LeftSidebarPanel extends JPanel {
     }
 
     private JButton createStartAllButton() {
-        JButton btn = LanMonitorTheme.createPrimaryButton(">> KHOI DONG TAT CA <<", LanMonitorTheme.PURPLE_HEADER);
+        JButton btn = new JButton(">> KHOI DONG TAT CA <<") {
+            @Override
+            protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                GradientPaint gp = new GradientPaint(0, 0, LanMonitorTheme.PURPLE_HEADER, getWidth(), getHeight(), new Color(0x8B5CF6));
+                g2.setPaint(gp);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                super.paintComponent(g2);
+                g2.dispose();
+            }
+        };
         btn.setFont(LanMonitorTheme.FONT_BOLD.deriveFont(14f));
-        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        btn.setForeground(Color.WHITE);
+        btn.setHorizontalAlignment(SwingConstants.CENTER);
+        btn.setPreferredSize(new Dimension(340, 50));
+        btn.setMinimumSize(new Dimension(340, 50));
+        btn.setFocusPainted(false);
+        btn.setBorderPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setMargin(new Insets(0, 0, 0, 0));
+        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         return btn;
     }
 
-    private JPanel createAppCard(String appName, String moduleName, String jarName) {
+    private JPanel createAppCard(String appName, String subtitle, String moduleName, String jarName, Color accentColor, String iconText) {
         JPanel card = LanMonitorTheme.createDarkCard();
-        card.setLayout(new BorderLayout(8, 0));
-        card.setBorder(BorderFactory.createCompoundBorder(
-                card.getBorder(),
-                BorderFactory.createEmptyBorder(10, 12, 10, 12)));
-        card.setAlignmentX(Component.LEFT_ALIGNMENT);
-        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 50));
-        card.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        card.setLayout(new BorderLayout(10, 0));
+        card.setBorder(BorderFactory.createEmptyBorder(10, 12, 10, 12));
+        card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 70));
 
-        JLabel nameLabel = new JLabel(appName);
-        nameLabel.setFont(LanMonitorTheme.FONT_BASE);
-        nameLabel.setForeground(LanMonitorTheme.TEXT_LIGHT);
-        card.add(nameLabel, BorderLayout.CENTER);
+        JLabel iconLbl = new JLabel(iconText, SwingConstants.CENTER);
+        iconLbl.setOpaque(true);
+        iconLbl.setBackground(accentColor);
+        iconLbl.setForeground(Color.WHITE);
+        iconLbl.setFont(LanMonitorTheme.FONT_BOLD);
+        iconLbl.setPreferredSize(new Dimension(48, 48));
+        card.add(iconLbl, BorderLayout.WEST);
 
-        JLabel arrow = new JLabel(">");
-        arrow.setFont(LanMonitorTheme.FONT_BOLD);
-        arrow.setForeground(LanMonitorTheme.TEXT_MUTED);
-        card.add(arrow, BorderLayout.EAST);
+        JPanel centerPanel = new JPanel(new GridLayout(2, 1, 0, 2));
+        centerPanel.setOpaque(false);
+        JLabel titleLbl = new JLabel(appName);
+        titleLbl.setFont(LanMonitorTheme.FONT_BOLD);
+        titleLbl.setForeground(LanMonitorTheme.TEXT_LIGHT);
+        JLabel subLbl = new JLabel(subtitle);
+        subLbl.setFont(LanMonitorTheme.FONT_SMALL);
+        subLbl.setForeground(LanMonitorTheme.TEXT_MUTED);
+        centerPanel.add(titleLbl);
+        centerPanel.add(subLbl);
+        card.add(centerPanel, BorderLayout.CENTER);
 
-        card.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                launchApp(appName, moduleName, jarName);
-            }
+        JPanel eastPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        eastPanel.setOpaque(false);
+        JLabel statusLbl = new JLabel("○ Chua mo");
+        statusLbl.setFont(LanMonitorTheme.FONT_SMALL);
+        statusLbl.setForeground(LanMonitorTheme.TEXT_MUTED);
 
-            @Override
-            public void mouseEntered(java.awt.event.MouseEvent e) {
-                card.setBackground(LanMonitorTheme.DARK_CARD_HOVER);
-            }
-
-            @Override
-            public void mouseExited(java.awt.event.MouseEvent e) {
-                card.setBackground(LanMonitorTheme.DARK_CARD);
-            }
+        JButton openBtn = LanMonitorTheme.createPrimaryButton("Mo", accentColor);
+        openBtn.setPreferredSize(new Dimension(70, 32));
+        openBtn.addActionListener(e -> {
+            launchApp(appName, moduleName, jarName);
+            statusLbl.setText("● Dang chay");
+            statusLbl.setForeground(LanMonitorTheme.GREEN_BTN);
         });
+
+        eastPanel.add(statusLbl);
+        eastPanel.add(openBtn);
+        card.add(eastPanel, BorderLayout.EAST);
 
         return card;
     }

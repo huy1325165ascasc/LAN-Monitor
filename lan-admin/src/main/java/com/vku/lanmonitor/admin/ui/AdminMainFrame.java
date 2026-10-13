@@ -133,7 +133,7 @@ public class AdminMainFrame extends JFrame {
 
         // Main Workspace: Sidebar (left) + Content (center)
         JPanel workspace = new JPanel(new BorderLayout(6, 0));
-        leftSidebarPanel.setPreferredSize(new Dimension(280, 0));
+        leftSidebarPanel.setPreferredSize(new Dimension(380, 0));
         workspace.add(leftSidebarPanel, BorderLayout.WEST);
 
         cardLayout = new CardLayout();
