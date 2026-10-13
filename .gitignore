@@ -64,3 +64,25 @@ Do_An_Mang_backup_*/
 
 # Build outputs
 **/target/
+
+# === Runtime data (do not commit) ===
+lan-server/images/webcam_clips/
+lan-server/images/webcam_snapshots/
+lan-server/images/cheat_*.jpg
+lan-server/images/manual_*.jpg
+lan-server/storage/results/
+lan-server/storage/*.tmp
+
+# === Build artifacts ===
+**/target/
+*.jar
+*.class
+
+# === IDE ===
+.idea/
+*.iml
+.vscode/settings.json
+
+# === OS ===
+Thumbs.db
+.DS_Store
