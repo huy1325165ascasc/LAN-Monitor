@@ -22,6 +22,7 @@ public class AdminMainFrame extends JFrame {
     private final AdminMessageDispatcher dispatcher;
     private final ProcessManager processManager;
     private final ServerLogPanel logPanel;
+    private final LeftSidebarPanel leftSidebarPanel;
 
     private JLabel statusBadge;
     private JPanel contentPanel;
@@ -33,10 +34,14 @@ public class AdminMainFrame extends JFrame {
         this.dispatcher = new AdminMessageDispatcher();
         tcpClient.setMessageListener(dispatcher::dispatch);
 
-        // Initialize ProcessManager and wire to log panel
+        // Initialize ProcessManager, ServerLogPanel, and LeftSidebarPanel
         this.processManager = new ProcessManager();
         this.logPanel = new ServerLogPanel();
-        processManager.setLogListener(logPanel::appendLine);
+        this.leftSidebarPanel = new LeftSidebarPanel(processManager);
+
+        processManager.setLogListener(line -> {
+            logPanel.appendLine(line);
+        });
 
         LanMonitorTheme.applyGlobalStyle();
 
@@ -128,10 +133,8 @@ public class AdminMainFrame extends JFrame {
 
         // Main Workspace: Sidebar (left) + Content (center)
         JPanel workspace = new JPanel(new BorderLayout(6, 0));
-
-        LeftSidebarPanel sidebarPanel = new LeftSidebarPanel(processManager);
-        sidebarPanel.setPreferredSize(new Dimension(280, 0));
-        workspace.add(sidebarPanel, BorderLayout.WEST);
+        leftSidebarPanel.setPreferredSize(new Dimension(280, 0));
+        workspace.add(leftSidebarPanel, BorderLayout.WEST);
 
         cardLayout = new CardLayout();
         contentPanel = new JPanel(cardLayout);
@@ -146,9 +149,6 @@ public class AdminMainFrame extends JFrame {
 
         workspace.add(contentPanel, BorderLayout.CENTER);
         add(workspace, BorderLayout.CENTER);
-
-        // Log Panel at bottom
-        add(logPanel, BorderLayout.SOUTH);
 
         // Status Bar
         JPanel statusBar = new JPanel(new BorderLayout());
@@ -168,9 +168,19 @@ public class AdminMainFrame extends JFrame {
         JPanel bottomContainer = new JPanel(new BorderLayout());
         bottomContainer.add(logPanel, BorderLayout.CENTER);
         bottomContainer.add(statusBar, BorderLayout.SOUTH);
-        // Rebuild: remove previous SOUTH (log) and put combined bottom
-        remove(logPanel);
         add(bottomContainer, BorderLayout.SOUTH);
+
+        // Timer check status every 2 seconds on background thread
+        new javax.swing.Timer(2000, e -> {
+            new Thread(() -> {
+                boolean online = processManager.isPortInUse(9999);
+                SwingUtilities.invokeLater(() -> {
+                    leftSidebarPanel.setServerOnline(online);
+                    statusBadge.setText(online ? "ONLINE" : "OFFLINE");
+                    statusBadge.setBackground(online ? LanMonitorTheme.GREEN_BTN : LanMonitorTheme.RED_BTN);
+                });
+            }, "StatusCheckThread").start();
+        }).start();
 
         new Timer(1000, e -> timeLbl.setText("Cập nhật: " + new SimpleDateFormat("HH:mm:ss").format(new Date()))).start();
     }
@@ -189,18 +199,6 @@ public class AdminMainFrame extends JFrame {
         btn.setFont(LanMonitorTheme.FONT_BASE);
         btn.addActionListener(e -> switchTab(id));
         return btn;
-    }
-
-    public void setServerStatus(boolean online) {
-        SwingUtilities.invokeLater(() -> {
-            if (online) {
-                statusBadge.setText("ONLINE");
-                statusBadge.setBackground(LanMonitorTheme.GREEN_BTN);
-            } else {
-                statusBadge.setText("OFFLINE");
-                statusBadge.setBackground(LanMonitorTheme.RED_BTN);
-            }
-        });
     }
 
     private void switchTab(String tabId) {

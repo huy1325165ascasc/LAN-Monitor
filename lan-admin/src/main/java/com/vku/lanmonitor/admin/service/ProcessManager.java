@@ -23,7 +23,7 @@ public class ProcessManager {
         this.logListener = listener;
     }
 
-    private void log(String line) {
+    public void log(String line) {
         if (logListener != null) {
             logListener.onLog(line);
         }

@@ -73,6 +73,16 @@ public final class LanMonitorTheme {
         return btn;
     }
 
+    public static JButton createSecondaryButton(String text, Color bg) {
+        JButton btn = new JButton(text);
+        btn.setFont(FONT_BASE);
+        btn.setBackground(bg);
+        btn.setForeground(WHITE);
+        btn.setFocusPainted(false);
+        btn.setBorderPainted(false);
+        return btn;
+    }
+
     /**
      * Creates a dark-themed card panel.
      *

@@ -14,12 +14,13 @@ import java.io.IOException;
 public class LeftSidebarPanel extends JPanel {
 
     private static final int SIDEBAR_WIDTH = 280;
-    private static final int MAX_LOG_LINES = 500;
 
     private final ProcessManager processManager;
-    private JLabel serverStatusLabel;
+    private JLabel serverStatusBadge;
     private JButton btnStart;
     private JButton btnStop;
+    private JButton btnClearLog;
+    private JButton btnStartAll;
 
     /**
      * Creates a new LeftSidebarPanel.
@@ -43,19 +44,15 @@ public class LeftSidebarPanel extends JPanel {
         content.add(Box.createVerticalStrut(16));
         content.add(createSectionHeader("APP LAUNCHER"));
         content.add(Box.createVerticalStrut(8));
-        content.add(createAppCard("Admin Dashboard", "lan-admin", "lan-admin-1.0.0-jar-with-dependencies.jar"));
+        content.add(createAppCard("Student App", "lan-student", "lan-student-1.0.0-jar-with-dependencies.jar"));
         content.add(Box.createVerticalStrut(6));
-        content.add(createAppCard("Student Client", "lan-client", "lan-client-1.0.0-jar-with-dependencies.jar"));
-        content.add(Box.createVerticalStrut(6));
-        content.add(createAppCard("Quiz Editor", "lan-quiz", "lan-quiz-1.0.0-jar-with-dependencies.jar"));
+        content.add(createAppCard("Anti-cheat Client", "lan-client", "lan-client-1.0.0-jar-with-dependencies.jar"));
 
         JScrollPane scrollPane = new JScrollPane(content);
         scrollPane.setBorder(null);
         scrollPane.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scrollPane.getViewport().setBackground(LanMonitorTheme.DARK_SIDEBAR);
         add(scrollPane, BorderLayout.CENTER);
-
-        updateServerStatus();
     }
 
     /**
@@ -84,9 +81,9 @@ public class LeftSidebarPanel extends JPanel {
         card.setAlignmentX(Component.LEFT_ALIGNMENT);
         card.setMaximumSize(new Dimension(Integer.MAX_VALUE, 140));
 
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
-        statusRow.setOpaque(false);
-        statusRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel headerRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        headerRow.setOpaque(false);
+        headerRow.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         JLabel iconLabel = new JLabel("LM");
         iconLabel.setOpaque(true);
@@ -96,32 +93,58 @@ public class LeftSidebarPanel extends JPanel {
         iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
         iconLabel.setPreferredSize(new Dimension(28, 28));
 
-        serverStatusLabel = new JLabel("[DUNG]");
-        serverStatusLabel.setFont(LanMonitorTheme.FONT_BOLD);
-        serverStatusLabel.setForeground(LanMonitorTheme.RED_BTN);
+        JLabel serverLabel = new JLabel(">> SERVER");
+        serverLabel.setFont(LanMonitorTheme.FONT_BOLD);
+        serverLabel.setForeground(LanMonitorTheme.TEXT_MUTED);
 
-        statusRow.add(iconLabel);
-        statusRow.add(new JLabel(" ") {{ setForeground(LanMonitorTheme.TEXT_LIGHT); setFont(LanMonitorTheme.FONT_BOLD); }});
-        statusRow.add(serverStatusLabel);
-        card.add(statusRow);
+        JLabel portLabel = new JLabel("port 9999");
+        portLabel.setFont(LanMonitorTheme.FONT_SMALL);
+        portLabel.setForeground(LanMonitorTheme.TEXT_MUTED);
+
+        serverStatusBadge = new JLabel("OFFLINE");
+        serverStatusBadge.setFont(LanMonitorTheme.FONT_BOLD);
+        serverStatusBadge.setForeground(LanMonitorTheme.RED_BTN);
+
+        headerRow.add(iconLabel);
+        headerRow.add(serverLabel);
+        headerRow.add(portLabel);
+        headerRow.add(serverStatusBadge);
+        card.add(headerRow);
         card.add(Box.createVerticalStrut(10));
 
-        JPanel btnRow = new JPanel(new GridLayout(1, 2, 6, 0));
+        btnStart = LanMonitorTheme.createPrimaryButton("Start Server", LanMonitorTheme.GREEN_BTN);
+        btnStop = LanMonitorTheme.createPrimaryButton("Stop Server", LanMonitorTheme.RED_BTN);
+        btnClearLog = LanMonitorTheme.createSecondaryButton("Xoa log", LanMonitorTheme.DARK_CARD_HOVER);
+        btnStartAll = createStartAllButton();
+
+        btnStart.addActionListener(e -> startServerFlow());
+        btnStop.addActionListener(e -> stopServerFlow());
+        btnClearLog.addActionListener(e -> clearLog());
+        btnStartAll.addActionListener(e -> startAllFlow());
+
+        JPanel btnRow = new JPanel(new GridLayout(3, 1, 0, 6));
         btnRow.setOpaque(false);
         btnRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btnRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 32));
+        btnRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, 120));
 
-        btnStart = LanMonitorTheme.createPrimaryButton("Start", LanMonitorTheme.GREEN_BTN);
-        btnStop = LanMonitorTheme.createPrimaryButton("Stop", LanMonitorTheme.RED_BTN);
+        btnRow.add(btnStartAll);
+        JPanel subRow = new JPanel(new GridLayout(1, 3, 4, 0));
+        subRow.setOpaque(false);
+        subRow.add(btnStart);
+        subRow.add(btnStop);
+        subRow.add(btnClearLog);
+        btnRow.add(subRow);
 
-        btnStart.addActionListener(e -> startServer());
-        btnStop.addActionListener(e -> stopServer());
-
-        btnRow.add(btnStart);
-        btnRow.add(btnStop);
         card.add(btnRow);
 
         return card;
+    }
+
+    private JButton createStartAllButton() {
+        JButton btn = LanMonitorTheme.createPrimaryButton(">> KHOI DONG TAT CA <<", LanMonitorTheme.PURPLE_HEADER);
+        btn.setFont(LanMonitorTheme.FONT_BOLD.deriveFont(14f));
+        btn.setMaximumSize(new Dimension(Integer.MAX_VALUE, 40));
+        return btn;
     }
 
     private JPanel createAppCard(String appName, String moduleName, String jarName) {
@@ -164,7 +187,7 @@ public class LeftSidebarPanel extends JPanel {
         return card;
     }
 
-    private void startServer() {
+    private void startServerFlow() {
         btnStart.setEnabled(false);
         new Thread(() -> {
             try {
@@ -181,9 +204,131 @@ public class LeftSidebarPanel extends JPanel {
         }, "ServerStartThread").start();
     }
 
-    private void stopServer() {
+    private void stopServerFlow() {
         processManager.stopServer();
         updateServerStatus();
+    }
+
+    private void startAllFlow() {
+        btnStartAll.setEnabled(false);
+        new Thread(() -> {
+            try {
+                // Bước 1: Kiểm tra và khởi động server
+                if (!processManager.isServerRunning()) {
+                    processManager.startServer();
+                }
+
+                // Bước 2: Đợi 5 giây bằng Timer (không block EDT)
+                final javax.swing.Timer[] tHolder = new javax.swing.Timer[1];
+                tHolder[0] = new javax.swing.Timer(5000, e -> {
+                    new Thread(() -> {
+                        boolean inUse = processManager.isPortInUse(9999);
+                        if (inUse) {
+                            tHolder[0].stop();
+                            try {
+                                processManager.launchApp("lan-student", "lan-student-1.0.0-jar-with-dependencies.jar");
+                                processManager.launchApp("lan-client", "lan-client-1.0.0-jar-with-dependencies.jar");
+                                SwingUtilities.invokeLater(() -> {
+                                    btnStartAll.setEnabled(true);
+                                    JOptionPane.showMessageDialog(LeftSidebarPanel.this,
+                                            "Đã khởi động thành công Server + Student + Client!",
+                                            "Thành công", JOptionPane.INFORMATION_MESSAGE);
+                                });
+                            } catch (IOException ex) {
+                                SwingUtilities.invokeLater(() -> {
+                                    btnStartAll.setEnabled(true);
+                                    JOptionPane.showMessageDialog(LeftSidebarPanel.this,
+                                            "Lỗi khởi động app: " + ex.getMessage(),
+                                            "Lỗi", JOptionPane.ERROR_MESSAGE);
+                                });
+                            }
+                        } else {
+                            tHolder[0].stop();
+                            SwingUtilities.invokeLater(() -> {
+                                btnStartAll.setEnabled(true);
+                                JOptionPane.showMessageDialog(LeftSidebarPanel.this,
+                                        "Server chưa sẵn sàng sau 5 giây!",
+                                        "Cảnh báo", JOptionPane.WARNING_MESSAGE);
+                            });
+                        }
+                    }, "StartAllPortCheckThread").start();
+                });
+                tHolder[0].start();
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(LeftSidebarPanel.this,
+                            "Loi trong startAll: " + ex.getMessage(),
+                            "Loi", JOptionPane.ERROR_MESSAGE);
+                    btnStartAll.setEnabled(true);
+                });
+            }
+        }, "StartAllThread").start();
+    }
+
+    private void updateServerStatus() {
+        SwingUtilities.invokeLater(() -> {
+            boolean running = processManager.isServerRunning();
+            if (running) {
+                serverStatusBadge.setText("[DANG CHAY]");
+                serverStatusBadge.setForeground(LanMonitorTheme.GREEN_BTN);
+                btnStart.setEnabled(false);
+                btnStop.setEnabled(true);
+            } else {
+                serverStatusBadge.setText("[DUNG]");
+                serverStatusBadge.setForeground(LanMonitorTheme.RED_BTN);
+                btnStart.setEnabled(true);
+                btnStop.setEnabled(false);
+            }
+        });
+    }
+
+    private void clearLog() {
+        SwingUtilities.invokeLater(() -> {
+            // TODO: Xoa log
+        });
+    }
+
+    /**
+     * Sets whether the server is online.
+     *
+     * @param online true if online
+     */
+    public void setServerOnline(boolean online) {
+        SwingUtilities.invokeLater(() -> {
+            serverStatusBadge.setText(online ? "ONLINE" : "OFFLINE");
+            serverStatusBadge.setForeground(online ? LanMonitorTheme.GREEN_BTN : LanMonitorTheme.RED_BTN);
+            btnStart.setEnabled(!online);
+            btnStop.setEnabled(online);
+            btnStartAll.setEnabled(!online);
+        });
+    }
+
+    /**
+     * Refreshes server online status asynchronously using SwingWorker.
+     */
+    public void refreshServerStatus() {
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                return processManager.isPortInUse(9999);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    boolean online = get();
+                    setServerOnline(online);
+            } catch (Exception e) {
+                // Ignore silent port check failure on close
+                setServerOnline(false);
+            }
+            }
+        }.execute();
+    }
+
+    private JLabel getAppStatusLabel(String appName) {
+        // Implementation would need to track status labels
+        return null;
     }
 
     private void launchApp(String appName, String moduleName, String jarName) {
@@ -192,27 +337,10 @@ public class LeftSidebarPanel extends JPanel {
                 processManager.launchApp(moduleName, jarName);
             } catch (IOException ex) {
                 SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(LeftSidebarPanel.this,
+                        JOptionPane.showMessageDialog(this,
                                 "Loi khoi dong " + appName + ": " + ex.getMessage(),
                                 "Loi", JOptionPane.ERROR_MESSAGE));
             }
         }, "AppLaunchThread-" + moduleName).start();
-    }
-
-    private void updateServerStatus() {
-        SwingUtilities.invokeLater(() -> {
-            boolean running = processManager.isServerRunning();
-            if (running) {
-                serverStatusLabel.setText("[DANG CHAY]");
-                serverStatusLabel.setForeground(LanMonitorTheme.GREEN_BTN);
-                btnStart.setEnabled(false);
-                btnStop.setEnabled(true);
-            } else {
-                serverStatusLabel.setText("[DUNG]");
-                serverStatusLabel.setForeground(LanMonitorTheme.RED_BTN);
-                btnStart.setEnabled(true);
-                btnStop.setEnabled(false);
-            }
-        });
     }
 }
