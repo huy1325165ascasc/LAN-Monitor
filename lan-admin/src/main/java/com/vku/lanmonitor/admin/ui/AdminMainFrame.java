@@ -38,6 +38,7 @@ public class AdminMainFrame extends JFrame {
         this.processManager = new ProcessManager();
         this.logPanel = new ServerLogPanel();
         this.leftSidebarPanel = new LeftSidebarPanel(processManager);
+        this.leftSidebarPanel.setClearLogAction(this.logPanel::clear);
 
         processManager.setLogListener(line -> {
             logPanel.appendLine(line);
@@ -182,7 +183,8 @@ public class AdminMainFrame extends JFrame {
             }, "StatusCheckThread").start();
         }).start();
 
-        new Timer(1000, e -> timeLbl.setText("Cập nhật: " + new SimpleDateFormat("HH:mm:ss").format(new Date()))).start();
+        new Timer(1000, e -> timeLbl.setText("Cập nhật: " + new SimpleDateFormat("HH:mm:ss").format(new Date())))
+                .start();
     }
 
     private JLabel createMenuLabel(String text) {
