@@ -3,6 +3,8 @@ package com.vku.lanmonitor.admin.ui;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
+import com.vku.lanmonitor.admin.ui.theme.LanMonitorTheme;
+
 import javax.swing.*;
 import java.awt.*;
 import java.text.SimpleDateFormat;
@@ -10,7 +12,12 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Dashboard panel showing connected client workstations.
+ * Uses {@link LanMonitorTheme} for consistent styling.
+ */
 public class DashboardPanel extends JPanel {
+
     private final AdminTcpClient tcpClient;
     private final AdminMessageDispatcher dispatcher;
     private final DefaultListModel<String> clientListModel;
@@ -24,22 +31,20 @@ public class DashboardPanel extends JPanel {
         this.tcpClient = tcpClient;
         this.dispatcher = dispatcher;
         setLayout(new BorderLayout(5, 5));
+        setBackground(LanMonitorTheme.LIGHT_BG);
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        JLabel lblTitle = new JLabel("Danh sách máy trạm đang online");
-        lblTitle.setFont(new Font("Arial", Font.BOLD, 16));
-        JButton btnRefresh = new JButton("Làm mới");
-        JButton btnLive = new JButton("Xem Live");
-        JButton btnWebcam = new JButton("Xem Webcam");
-        btnWebcam.setBackground(new Color(25, 120, 80));
-        btnWebcam.setForeground(Color.WHITE);
-        btnWebcam.setOpaque(true);
-        btnWebcam.setBorderPainted(false);
-        JButton btnSaveFrame = new JButton("Chụp ảnh");
-        lblCount = new JLabel("0 máy");
-        lblCount.setFont(new Font("Arial", Font.BOLD, 14));
-        lblCount.setForeground(new Color(0, 100, 200));
+        north.setOpaque(false);
+        JLabel lblTitle = new JLabel("Danh sach may tram dang online");
+        lblTitle.setFont(LanMonitorTheme.FONT_TITLE);
+        JButton btnRefresh = LanMonitorTheme.createSecondaryButton("Lam moi");
+        JButton btnLive = LanMonitorTheme.createSecondaryButton("Xem Live");
+        JButton btnWebcam = LanMonitorTheme.createPrimaryButton("Xem Webcam", LanMonitorTheme.GREEN_BTN);
+        JButton btnSaveFrame = LanMonitorTheme.createSecondaryButton("Chup anh");
+        lblCount = new JLabel("0 may");
+        lblCount.setFont(LanMonitorTheme.FONT_BOLD);
+        lblCount.setForeground(LanMonitorTheme.BLUE_BTN);
         north.add(lblTitle);
         north.add(btnRefresh);
         north.add(lblCount);
@@ -50,57 +55,60 @@ public class DashboardPanel extends JPanel {
 
         clientListModel = new DefaultListModel<>();
         clientList = new JList<>(clientListModel);
-        clientList.setFont(new Font("Arial", Font.PLAIN, 14));
+        clientList.setFont(LanMonitorTheme.FONT_BASE);
+        clientList.setBackground(LanMonitorTheme.WHITE);
         clientList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         JScrollPane scroll = new JScrollPane(clientList);
+        scroll.setBorder(BorderFactory.createLineBorder(LanMonitorTheme.LIGHT_CONTENT));
         add(scroll, BorderLayout.CENTER);
 
-        lblStatus = new JLabel("Chưa cập nhật");
+        lblStatus = new JLabel("Chua cap nhat");
         lblStatus.setOpaque(true);
-        lblStatus.setBackground(new Color(255, 255, 200));
+        lblStatus.setBackground(LanMonitorTheme.PURPLE_LIGHT);
+        lblStatus.setFont(LanMonitorTheme.FONT_SMALL);
         lblStatus.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
         add(lblStatus, BorderLayout.SOUTH);
 
         btnRefresh.addActionListener(e -> tcpClient.sendCommand("REQ_CLIENT_LIST"));
-        
+
         btnLive.addActionListener(e -> {
             int idx = clientList.getSelectedIndex();
             if (idx < 0 || currentClients == null || idx >= currentClients.size()) {
-                JOptionPane.showMessageDialog(this, "Chọn 1 client!");
+                JOptionPane.showMessageDialog(this, "Chon 1 client!");
                 return;
             }
             Map<String, Object> c = currentClients.get(idx);
             String id = String.valueOf(c.get("id"));
             String pcName = String.valueOf(c.get("pcName"));
             new LivestreamDialog(
-                (JFrame) SwingUtilities.getWindowAncestor(this),
-                tcpClient, dispatcher, id, pcName);
+                    (JFrame) SwingUtilities.getWindowAncestor(this),
+                    tcpClient, dispatcher, id, pcName);
         });
-        
+
         btnSaveFrame.addActionListener(e -> {
             int idx = clientList.getSelectedIndex();
             if (idx < 0 || currentClients == null || idx >= currentClients.size()) {
-                JOptionPane.showMessageDialog(this, "Chọn 1 client!");
+                JOptionPane.showMessageDialog(this, "Chon 1 client!");
                 return;
             }
             Map<String, Object> c = currentClients.get(idx);
             String id = String.valueOf(c.get("id"));
             tcpClient.sendCommand("SAVE_FRAME:" + id);
-            lblStatus.setText("Đã gửi lệnh lưu ảnh cho " + c.get("pcName"));
+            lblStatus.setText("Da gui lenh luu anh cho " + c.get("pcName"));
         });
 
         btnWebcam.addActionListener(e -> {
             int idx = clientList.getSelectedIndex();
             if (idx < 0 || currentClients == null || idx >= currentClients.size()) {
-                JOptionPane.showMessageDialog(this, "Chọn 1 client!");
+                JOptionPane.showMessageDialog(this, "Chon 1 client!");
                 return;
             }
             Map<String, Object> c = currentClients.get(idx);
             String id = String.valueOf(c.get("id"));
             String pcNameVal = String.valueOf(c.get("pcName"));
             new WebcamDialog(
-                (JFrame) SwingUtilities.getWindowAncestor(this),
-                tcpClient, dispatcher, id, pcNameVal);
+                    (JFrame) SwingUtilities.getWindowAncestor(this),
+                    tcpClient, dispatcher, id, pcNameVal);
         });
 
         dispatcher.addHandler(this::handleServerMessage);
@@ -126,8 +134,8 @@ public class DashboardPanel extends JPanel {
             currentClients = clients;
             clientListModel.clear();
             if (clients.isEmpty()) {
-                clientListModel.addElement("(Chưa có máy trạm nào kết nối)");
-                lblCount.setText("0 máy");
+                clientListModel.addElement("(Chua co may tram nao ket noi)");
+                lblCount.setText("0 may");
             } else {
                 for (Map<String, Object> c : clients) {
                     String id = String.valueOf(c.get("id"));
@@ -135,12 +143,11 @@ public class DashboardPanel extends JPanel {
                     String pcName = String.valueOf(c.get("pcName"));
                     clientListModel.addElement("PC " + pcName + " - " + ip + " [" + id + "]");
                 }
-                lblCount.setText(clients.size() + " máy");
+                lblCount.setText(clients.size() + " may");
             }
-            lblStatus.setText("Cập nhật: " + new SimpleDateFormat("HH:mm:ss").format(new Date()));
+            lblStatus.setText("Cap nhat: " + new SimpleDateFormat("HH:mm:ss").format(new Date()));
         } catch (Exception e) {
-            e.printStackTrace();
-            lblStatus.setText("Lỗi parse: " + e.getMessage());
+            lblStatus.setText("Loi parse: " + e.getMessage());
         }
     }
 

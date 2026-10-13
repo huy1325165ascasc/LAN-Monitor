@@ -3,13 +3,20 @@ package com.vku.lanmonitor.admin.ui;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
+import com.vku.lanmonitor.admin.ui.theme.LanMonitorTheme;
+
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Quiz management panel with themed table and action buttons.
+ * Uses {@link LanMonitorTheme} for consistent styling.
+ */
 public class QuizEditorPanel extends JPanel {
+
     private final AdminTcpClient tcpClient;
     private final JTable quizTable;
     private final DefaultTableModel tableModel;
@@ -19,26 +26,18 @@ public class QuizEditorPanel extends JPanel {
     public QuizEditorPanel(AdminTcpClient tcpClient, AdminMessageDispatcher dispatcher) {
         this.tcpClient = tcpClient;
         setLayout(new BorderLayout(5, 5));
+        setBackground(LanMonitorTheme.LIGHT_BG);
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         JPanel north = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
-        JLabel lblTitle = new JLabel("Quản lý đề thi");
-        lblTitle.setFont(new Font("Arial", Font.BOLD, 16));
+        north.setOpaque(false);
+        JLabel lblTitle = new JLabel("Quan ly de thi");
+        lblTitle.setFont(LanMonitorTheme.FONT_TITLE);
 
-        JButton btnCreate = new JButton("Tạo đề mới");
-        btnCreate.setBackground(new Color(50, 150, 50));
-        btnCreate.setForeground(Color.WHITE);
-        btnCreate.setOpaque(true);
-        btnCreate.setBorderPainted(false);
-
-        JButton btnEdit = new JButton("Sửa");
-        JButton btnDelete = new JButton("Xóa");
-        btnDelete.setBackground(new Color(200, 50, 50));
-        btnDelete.setForeground(Color.WHITE);
-        btnDelete.setOpaque(true);
-        btnDelete.setBorderPainted(false);
-
-        JButton btnRefresh = new JButton("Làm mới");
+        JButton btnCreate = LanMonitorTheme.createPrimaryButton("Tao de moi", LanMonitorTheme.GREEN_BTN);
+        JButton btnEdit = LanMonitorTheme.createSecondaryButton("Sua");
+        JButton btnDelete = LanMonitorTheme.createPrimaryButton("Xoa", LanMonitorTheme.RED_BTN);
+        JButton btnRefresh = LanMonitorTheme.createSecondaryButton("Lam moi");
 
         north.add(lblTitle);
         north.add(Box.createHorizontalStrut(20));
@@ -48,7 +47,7 @@ public class QuizEditorPanel extends JPanel {
         north.add(btnRefresh);
         add(north, BorderLayout.NORTH);
 
-        String[] columns = {"ID", "Tên đề thi", "Thời gian (phút)", "Số câu", "Trạng thái"};
+        String[] columns = {"ID", "Ten de thi", "Thoi gian (phut)", "So cau", "Trang thai"};
         tableModel = new DefaultTableModel(columns, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -56,16 +55,20 @@ public class QuizEditorPanel extends JPanel {
             }
         };
         quizTable = new JTable(tableModel);
-        quizTable.setFont(new Font("Arial", Font.PLAIN, 13));
-        quizTable.setRowHeight(25);
+        quizTable.setFont(LanMonitorTheme.FONT_BASE);
+        quizTable.setRowHeight(28);
         quizTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        quizTable.getTableHeader().setFont(new Font("Arial", Font.BOLD, 13));
+        quizTable.setGridColor(LanMonitorTheme.LIGHT_CONTENT);
+        quizTable.getTableHeader().setFont(LanMonitorTheme.FONT_BOLD);
+        quizTable.getTableHeader().setBackground(LanMonitorTheme.PURPLE_LIGHT);
         JScrollPane scroll = new JScrollPane(quizTable);
+        scroll.setBorder(BorderFactory.createLineBorder(LanMonitorTheme.LIGHT_CONTENT));
         add(scroll, BorderLayout.CENTER);
 
-        lblStatus = new JLabel("Chưa tải danh sách");
+        lblStatus = new JLabel("Chua tai danh sach");
         lblStatus.setOpaque(true);
-        lblStatus.setBackground(new Color(255, 255, 200));
+        lblStatus.setBackground(LanMonitorTheme.PURPLE_LIGHT);
+        lblStatus.setFont(LanMonitorTheme.FONT_SMALL);
         lblStatus.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
         add(lblStatus, BorderLayout.SOUTH);
 
@@ -73,7 +76,7 @@ public class QuizEditorPanel extends JPanel {
         btnEdit.addActionListener(e -> {
             int row = quizTable.getSelectedRow();
             if (row < 0) {
-                JOptionPane.showMessageDialog(this, "Chọn 1 đề thi để sửa!");
+                JOptionPane.showMessageDialog(this, "Chon 1 de thi de sua!");
                 return;
             }
             if (quizzesData == null || row >= quizzesData.size()) return;
@@ -93,20 +96,20 @@ public class QuizEditorPanel extends JPanel {
             SwingUtilities.invokeLater(() -> updateQuizTable(json));
         } else if (message.startsWith("SAVE_QUIZ_OK")) {
             SwingUtilities.invokeLater(() -> {
-                lblStatus.setText("Đã lưu đề thi thành công");
+                lblStatus.setText("Da luu de thi thanh cong");
                 tcpClient.sendCommand("REQ_QUIZ_ALL");
             });
         } else if (message.startsWith("SAVE_QUIZ_FAIL")) {
-            SwingUtilities.invokeLater(() -> 
-                JOptionPane.showMessageDialog(this, "Lỗi lưu: " + message.substring(14)));
+            SwingUtilities.invokeLater(() ->
+                    JOptionPane.showMessageDialog(this, "Loi luu: " + message.substring(14)));
         } else if (message.startsWith("DELETE_QUIZ_OK")) {
             SwingUtilities.invokeLater(() -> {
-                lblStatus.setText("Đã xóa đề thi");
+                lblStatus.setText("Da xoa de thi");
                 tcpClient.sendCommand("REQ_QUIZ_ALL");
             });
         } else if (message.startsWith("DELETE_QUIZ_FAIL")) {
-            SwingUtilities.invokeLater(() -> 
-                JOptionPane.showMessageDialog(this, "Lỗi xóa: " + message.substring(16)));
+            SwingUtilities.invokeLater(() ->
+                    JOptionPane.showMessageDialog(this, "Loi xoa: " + message.substring(16)));
         }
     }
 
@@ -124,27 +127,26 @@ public class QuizEditorPanel extends JPanel {
                 List<?> data = (List<?>) quiz.get("data");
                 int soCau = data != null ? data.size() : 0;
                 Boolean valid = (Boolean) quiz.get("isValid");
-                String status = Boolean.TRUE.equals(valid) ? "Hợp lệ" : "Chưa có câu hỏi";
+                String status = Boolean.TRUE.equals(valid) ? "[DUNG]" : "[SAI]";
                 tableModel.addRow(new Object[]{id, name, timeLimit, soCau, status});
             }
-            lblStatus.setText("Đã tải " + quizzesData.size() + " đề thi");
+            lblStatus.setText("Da tai " + quizzesData.size() + " de thi");
         } catch (Exception e) {
-            e.printStackTrace();
-            lblStatus.setText("Lỗi parse: " + e.getMessage());
+            lblStatus.setText("Loi parse: " + e.getMessage());
         }
     }
 
     private void deleteSelectedQuiz() {
         int row = quizTable.getSelectedRow();
         if (row < 0) {
-            JOptionPane.showMessageDialog(this, "Chọn 1 đề thi để xóa!");
+            JOptionPane.showMessageDialog(this, "Chon 1 de thi de xoa!");
             return;
         }
         String id = (String) tableModel.getValueAt(row, 0);
         String name = (String) tableModel.getValueAt(row, 1);
         int c = JOptionPane.showConfirmDialog(this,
-                "Xóa đề thi \"" + name + "\"?",
-                "Xác nhận xóa", JOptionPane.YES_NO_OPTION);
+                "Xoa de thi \"" + name + "\"?",
+                "Xac nhan xoa", JOptionPane.YES_NO_OPTION);
         if (c == JOptionPane.YES_OPTION) {
             tcpClient.sendCommand("DELETE_QUIZ:" + id);
         }

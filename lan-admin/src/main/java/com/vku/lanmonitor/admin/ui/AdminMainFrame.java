@@ -1,27 +1,52 @@
 package com.vku.lanmonitor.admin.ui;
 
-import com.vku.lanmonitor.admin.net.AdminTcpClient;
 import com.vku.lanmonitor.admin.net.AdminMessageDispatcher;
+import com.vku.lanmonitor.admin.net.AdminTcpClient;
+import com.vku.lanmonitor.admin.service.ProcessManager;
+import com.vku.lanmonitor.admin.ui.theme.LanMonitorTheme;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
+/**
+ * Main Admin Dashboard frame with title bar, purple header, sidebar,
+ * tabbed content, server log panel, and status bar.
+ */
 public class AdminMainFrame extends JFrame {
+
     private final AdminTcpClient tcpClient;
     private final AdminMessageDispatcher dispatcher;
+    private final ProcessManager processManager;
+    private final ServerLogPanel logPanel;
+
+    private JLabel statusBadge;
+    private JPanel contentPanel;
+    private CardLayout cardLayout;
 
     public AdminMainFrame(AdminTcpClient tcpClient) {
         super("Admin Dashboard - LAN Monitor");
         this.tcpClient = tcpClient;
         this.dispatcher = new AdminMessageDispatcher();
-        
         tcpClient.setMessageListener(dispatcher::dispatch);
 
-        setSize(1200, 800);
-        setExtendedState(JFrame.MAXIMIZED_BOTH);
+        // Initialize ProcessManager and wire to log panel
+        this.processManager = new ProcessManager();
+        this.logPanel = new ServerLogPanel();
+        processManager.setLogListener(logPanel::appendLine);
+
+        LanMonitorTheme.applyGlobalStyle();
+
+        setLayout(new BorderLayout());
+        initComponents();
+
+        setSize(1520, 900);
+        setMinimumSize(new Dimension(1200, 700));
         setLocationRelativeTo(null);
-        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
 
         addWindowListener(new WindowAdapter() {
             @Override
@@ -30,54 +55,163 @@ public class AdminMainFrame extends JFrame {
             }
         });
 
-        JMenuBar menuBar = new JMenuBar();
-        JMenu menuFile = new JMenu("File");
-        JMenuItem itemExit = new JMenuItem("Thoát");
-        itemExit.addActionListener(e -> handleExit());
-        menuFile.add(itemExit);
-        menuBar.add(menuFile);
-        setJMenuBar(menuBar);
-
-        setLayout(new BorderLayout());
-
-        JTabbedPane tabbedPane = new JTabbedPane();
-        tabbedPane.setFont(new Font("Arial", Font.BOLD, 13));
-
-        DashboardPanel dashboardPanel = new DashboardPanel(tcpClient, dispatcher);
-        tabbedPane.addTab("Dashboard", dashboardPanel);
-
-        QuizEditorPanel quizEditorPanel = new QuizEditorPanel(tcpClient, dispatcher);
-        tabbedPane.addTab("Quản lý đề thi", quizEditorPanel);
-
-        ConfigPanel configPanel = new ConfigPanel(tcpClient, dispatcher);
-        tabbedPane.addTab("Cấu hình", configPanel);
-
-        add(tabbedPane, BorderLayout.CENTER);
-
-        JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 6));
-        southPanel.setBackground(new Color(235, 238, 242));
-        southPanel.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(200, 205, 210)));
-
-        JLabel lblStatus = new JLabel("Admin: admin | Đã kết nối server");
-        lblStatus.setFont(new Font("Arial", Font.PLAIN, 12));
-        southPanel.add(lblStatus);
-
-        add(southPanel, BorderLayout.SOUTH);
+        setVisible(true);
     }
 
-    private JPanel createPlaceholderPanel(String text) {
-        JPanel panel = new JPanel(new GridBagLayout());
-        JLabel label = new JLabel(text);
-        label.setFont(new Font("Arial", Font.BOLD, 18));
-        label.setForeground(Color.GRAY);
-        panel.add(label);
-        return panel;
+    private void initComponents() {
+        // Title Bar
+        JPanel titleBar = new JPanel(new BorderLayout());
+        titleBar.setPreferredSize(new Dimension(1520, 28));
+        titleBar.setBackground(new Color(0xF0, 0xF3, 0xF6));
+
+        JPanel iconPanel = new JPanel();
+        iconPanel.setBackground(LanMonitorTheme.PURPLE_HEADER);
+        iconPanel.setPreferredSize(new Dimension(16, 16));
+        JLabel iconLbl = new JLabel("LM", SwingConstants.CENTER);
+        iconLbl.setForeground(Color.WHITE);
+        iconLbl.setFont(LanMonitorTheme.FONT_SMALL);
+        iconPanel.add(iconLbl);
+
+        JLabel titleLbl = new JLabel("  Admin Dashboard - LAN Monitor");
+        titleLbl.setFont(LanMonitorTheme.FONT_BASE);
+
+        JPanel westTitle = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 6));
+        westTitle.setOpaque(false);
+        westTitle.add(iconPanel);
+        westTitle.add(titleLbl);
+        titleBar.add(westTitle, BorderLayout.WEST);
+        add(titleBar, BorderLayout.NORTH);
+
+        // Header (purple)
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(LanMonitorTheme.PURPLE_HEADER);
+        headerPanel.setPreferredSize(new Dimension(1520, 70));
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+
+        JPanel headerWest = new JPanel(new GridLayout(2, 1));
+        headerWest.setOpaque(false);
+        JLabel mainTitle = new JLabel("LAN MONITOR");
+        mainTitle.setFont(LanMonitorTheme.FONT_TITLE.deriveFont(22f));
+        mainTitle.setForeground(Color.WHITE);
+        JLabel subTitle = new JLabel("Control Center v1.0");
+        subTitle.setFont(LanMonitorTheme.FONT_BASE.deriveFont(12f));
+        subTitle.setForeground(new Color(255, 255, 255, 180));
+        headerWest.add(mainTitle);
+        headerWest.add(subTitle);
+        headerPanel.add(headerWest, BorderLayout.WEST);
+
+        statusBadge = new JLabel("OFFLINE", SwingConstants.CENTER);
+        statusBadge.setOpaque(true);
+        statusBadge.setBackground(LanMonitorTheme.RED_BTN);
+        statusBadge.setForeground(Color.WHITE);
+        statusBadge.setFont(LanMonitorTheme.FONT_BOLD);
+        statusBadge.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createEmptyBorder(0, 16, 0, 0),
+                BorderFactory.createEmptyBorder(4, 12, 4, 12)));
+        headerPanel.add(statusBadge, BorderLayout.EAST);
+
+        // Menu Bar
+        JPanel menuBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        menuBar.setBackground(new Color(0xE4, 0xE9, 0xEF));
+        menuBar.setPreferredSize(new Dimension(1520, 30));
+
+        menuBar.add(createMenuLabel("File"));
+        menuBar.add(new JLabel(" | "));
+        menuBar.add(createTabButton("Dashboard", "dashboard"));
+        menuBar.add(createTabButton("Quản lý đề thi", "quan-ly-de-thi"));
+        menuBar.add(createTabButton("Cấu hình", "cau-hinh"));
+
+        JPanel topContainer = new JPanel(new BorderLayout());
+        topContainer.add(headerPanel, BorderLayout.CENTER);
+        topContainer.add(menuBar, BorderLayout.SOUTH);
+        add(topContainer, BorderLayout.NORTH);
+
+        // Main Workspace: Sidebar (left) + Content (center)
+        JPanel workspace = new JPanel(new BorderLayout(6, 0));
+
+        LeftSidebarPanel sidebarPanel = new LeftSidebarPanel(processManager);
+        sidebarPanel.setPreferredSize(new Dimension(280, 0));
+        workspace.add(sidebarPanel, BorderLayout.WEST);
+
+        cardLayout = new CardLayout();
+        contentPanel = new JPanel(cardLayout);
+
+        DashboardPanel dashboardPanel = new DashboardPanel(tcpClient, dispatcher);
+        QuizEditorPanel quizEditorPanel = new QuizEditorPanel(tcpClient, dispatcher);
+        ConfigPanel configPanel = new ConfigPanel(tcpClient, dispatcher);
+
+        contentPanel.add(dashboardPanel, "dashboard");
+        contentPanel.add(quizEditorPanel, "quan-ly-de-thi");
+        contentPanel.add(configPanel, "cau-hinh");
+
+        workspace.add(contentPanel, BorderLayout.CENTER);
+        add(workspace, BorderLayout.CENTER);
+
+        // Log Panel at bottom
+        add(logPanel, BorderLayout.SOUTH);
+
+        // Status Bar
+        JPanel statusBar = new JPanel(new BorderLayout());
+        statusBar.setBackground(new Color(0xF0, 0xF3, 0xF6));
+        statusBar.setPreferredSize(new Dimension(1520, 24));
+        statusBar.add(new JLabel("  Admin: admin | Đã kết nối server"), BorderLayout.WEST);
+
+        JPanel statusEast = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 4));
+        statusEast.setOpaque(false);
+        JLabel timeLbl = new JLabel();
+        timeLbl.setFont(LanMonitorTheme.FONT_SMALL);
+        statusEast.add(timeLbl);
+        statusEast.add(new JLabel("F:\\Do_An_Mang"));
+        statusBar.add(statusEast, BorderLayout.EAST);
+
+        // Place status bar after log so it stays at very bottom
+        JPanel bottomContainer = new JPanel(new BorderLayout());
+        bottomContainer.add(logPanel, BorderLayout.CENTER);
+        bottomContainer.add(statusBar, BorderLayout.SOUTH);
+        // Rebuild: remove previous SOUTH (log) and put combined bottom
+        remove(logPanel);
+        add(bottomContainer, BorderLayout.SOUTH);
+
+        new Timer(1000, e -> timeLbl.setText("Cập nhật: " + new SimpleDateFormat("HH:mm:ss").format(new Date()))).start();
+    }
+
+    private JLabel createMenuLabel(String text) {
+        JLabel lbl = new JLabel("  " + text + "  ");
+        lbl.setFont(LanMonitorTheme.FONT_BASE);
+        return lbl;
+    }
+
+    private JButton createTabButton(String text, String id) {
+        JButton btn = new JButton(text);
+        btn.setContentAreaFilled(false);
+        btn.setBorderPainted(false);
+        btn.setFocusPainted(false);
+        btn.setFont(LanMonitorTheme.FONT_BASE);
+        btn.addActionListener(e -> switchTab(id));
+        return btn;
+    }
+
+    public void setServerStatus(boolean online) {
+        SwingUtilities.invokeLater(() -> {
+            if (online) {
+                statusBadge.setText("ONLINE");
+                statusBadge.setBackground(LanMonitorTheme.GREEN_BTN);
+            } else {
+                statusBadge.setText("OFFLINE");
+                statusBadge.setBackground(LanMonitorTheme.RED_BTN);
+            }
+        });
+    }
+
+    private void switchTab(String tabId) {
+        cardLayout.show(contentPanel, tabId);
     }
 
     private void handleExit() {
         if (tcpClient != null) {
             tcpClient.disconnect();
         }
+        processManager.stopAll();
         dispose();
         System.exit(0);
     }
