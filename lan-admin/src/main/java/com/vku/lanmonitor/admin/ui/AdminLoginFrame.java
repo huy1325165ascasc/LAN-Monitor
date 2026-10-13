@@ -1,27 +1,41 @@
 package com.vku.lanmonitor.admin.ui;
 
 import com.vku.lanmonitor.admin.net.AdminTcpClient;
+import com.vku.lanmonitor.admin.service.ProcessManager;
+import com.vku.lanmonitor.admin.ui.theme.LanMonitorTheme;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.IOException;
+import java.util.concurrent.ExecutionException;
 
+/**
+ * Admin Login Frame with integrated Server control and real-time status check.
+ */
 public class AdminLoginFrame extends JFrame {
     private JTextField txtUsername;
     private JPasswordField txtPassword;
     private JTextField txtServerHost;
     private JTextField txtServerPort;
     private JButton btnLogin;
+    private JButton btnStartServer;
     private JLabel lblStatus;
+    private JLabel serverStatusLabel;
     private AdminTcpClient tcpClient;
+    private final ProcessManager processManager;
+    private javax.swing.Timer statusCheckTimer;
 
     public AdminLoginFrame() {
+        this.processManager = new ProcessManager();
         initComponents();
+        initServerStatusCheck();
     }
 
     private void initComponents() {
         setTitle("Đăng nhập Giám thị - LAN Monitor");
-        setSize(450, 430);
+        setSize(450, 490);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setLocationRelativeTo(null);
         setResizable(false);
@@ -32,6 +46,7 @@ public class AdminLoginFrame extends JFrame {
                 if (tcpClient != null) {
                     tcpClient.disconnect();
                 }
+                processManager.stopAll();
                 dispose();
                 System.exit(0);
             }
@@ -46,7 +61,25 @@ public class AdminLoginFrame extends JFrame {
         lblTitle.setFont(new Font("Arial", Font.BOLD, 20));
         lblTitle.setAlignmentX(Component.CENTER_ALIGNMENT);
         mainPanel.add(lblTitle);
-        mainPanel.add(Box.createVerticalStrut(20));
+        mainPanel.add(Box.createVerticalStrut(15));
+
+        // Server Status Panel
+        JPanel serverStatusPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+        serverStatusPanel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        serverStatusLabel = new JLabel("Server: OFFLINE");
+        serverStatusLabel.setFont(new Font("Arial", Font.BOLD, 12));
+        serverStatusLabel.setForeground(LanMonitorTheme.RED_BTN);
+        serverStatusPanel.add(serverStatusLabel);
+        mainPanel.add(serverStatusPanel);
+        mainPanel.add(Box.createVerticalStrut(10));
+
+        // Start Server Button
+        btnStartServer = LanMonitorTheme.createPrimaryButton("Khởi động Server", LanMonitorTheme.GREEN_BTN);
+        btnStartServer.setAlignmentX(Component.CENTER_ALIGNMENT);
+        btnStartServer.setMaximumSize(new Dimension(Integer.MAX_VALUE, 36));
+        btnStartServer.addActionListener(e -> startServerFromLogin());
+        mainPanel.add(btnStartServer);
+        mainPanel.add(Box.createVerticalStrut(15));
 
         // Username
         JPanel panelUser = new JPanel(new BorderLayout(5, 3));
@@ -106,6 +139,92 @@ public class AdminLoginFrame extends JFrame {
         txtPassword.addActionListener(e -> handleLogin());
         txtServerHost.addActionListener(e -> handleLogin());
         txtServerPort.addActionListener(e -> handleLogin());
+    }
+
+    private void initServerStatusCheck() {
+        statusCheckTimer = new javax.swing.Timer(2000, e -> refreshServerStatus());
+        statusCheckTimer.start();
+    }
+
+    private void refreshServerStatus() {
+        new SwingWorker<Boolean, Void>() {
+            @Override
+            protected Boolean doInBackground() {
+                return processManager.isPortInUse(9999);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    boolean online = get();
+                    SwingUtilities.invokeLater(() -> {
+                        serverStatusLabel.setText(online ? "Server: ONLINE" : "Server: OFFLINE");
+                        serverStatusLabel.setForeground(online ? LanMonitorTheme.GREEN_BTN : LanMonitorTheme.RED_BTN);
+                    });
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.err.println("[AdminLoginFrame] Status check interrupted: " + e.getMessage());
+                } catch (ExecutionException e) {
+                    System.err.println("[AdminLoginFrame] Status check failed: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                }
+            }
+        }.execute();
+    }
+
+    private void startServerFromLogin() {
+        btnStartServer.setEnabled(false);
+        btnStartServer.setText("Đang khởi động...");
+        new Thread(() -> {
+            try {
+                processManager.startServer();
+                // Wait and check port via SwingWorker
+                javax.swing.Timer checkTimer = new javax.swing.Timer(5000, evt -> {
+                    new SwingWorker<Boolean, Void>() {
+                        @Override
+                        protected Boolean doInBackground() {
+                            return processManager.isPortInUse(9999);
+                        }
+
+                        @Override
+                        protected void done() {
+                            try {
+                                boolean online = get();
+                                SwingUtilities.invokeLater(() -> {
+                                    serverStatusLabel.setText(online ? "Server: ONLINE" : "Server: OFFLINE");
+                                    serverStatusLabel.setForeground(online ? LanMonitorTheme.GREEN_BTN : LanMonitorTheme.RED_BTN);
+                                    btnStartServer.setEnabled(true);
+                                    btnStartServer.setText("Khởi động Server");
+                                    if (online) {
+                                        enableLoginButton();
+                                    }
+                                });
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                System.err.println("[AdminLoginFrame] Port check interrupted: " + e.getMessage());
+                                resetStartButton();
+                            } catch (ExecutionException e) {
+                                System.err.println("[AdminLoginFrame] Port check failed: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                                resetStartButton();
+                            }
+                        }
+                    }.execute();
+                });
+                checkTimer.setRepeats(false);
+                checkTimer.start();
+            } catch (IOException ex) {
+                SwingUtilities.invokeLater(() -> {
+                    JOptionPane.showMessageDialog(this, "Lỗi khởi động server: " + ex.getMessage(), "Lỗi", JOptionPane.ERROR_MESSAGE);
+                    resetStartButton();
+                });
+            }
+        }, "LoginServerStartThread").start();
+    }
+
+    private void resetStartButton() {
+        SwingUtilities.invokeLater(() -> {
+            btnStartServer.setEnabled(true);
+            btnStartServer.setText("Khởi động Server");
+        });
     }
 
     private void handleLogin() {
@@ -179,6 +298,12 @@ public class AdminLoginFrame extends JFrame {
                 btnLogin.setEnabled(true);
             }
         });
+    }
+
+    private void enableLoginButton() {
+        btnLogin.setEnabled(true);
+        lblStatus.setText("Server đã sẵn sàng. Bạn có thể đăng nhập.");
+        lblStatus.setForeground(LanMonitorTheme.GREEN_BTN);
     }
 
     private void showStatus(String msg, Color color) {
