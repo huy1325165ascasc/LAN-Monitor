@@ -289,7 +289,6 @@ public class AdminLoginFrame extends JFrame {
                 showStatus("Đăng nhập thành công!", new Color(0, 150, 0));
                 dispose();
                 AdminMainFrame mainFrame = new AdminMainFrame(tcpClient);
-                mainFrame.setVisible(true);
             } else if (message.startsWith("ADMIN_FAIL")) {
                 showStatus("Sai tài khoản hoặc mật khẩu", Color.RED);
                 btnLogin.setEnabled(true);

@@ -86,7 +86,6 @@ public class AdminMainFrame extends JFrame {
         westTitle.add(iconPanel);
         westTitle.add(titleLbl);
         titleBar.add(westTitle, BorderLayout.WEST);
-        add(titleBar, BorderLayout.NORTH);
 
         // Header (purple)
         JPanel headerPanel = new JPanel(new BorderLayout());
@@ -128,6 +127,7 @@ public class AdminMainFrame extends JFrame {
         menuBar.add(createTabButton("Cấu hình", "cau-hinh"));
 
         JPanel topContainer = new JPanel(new BorderLayout());
+        topContainer.add(titleBar, BorderLayout.NORTH);
         topContainer.add(headerPanel, BorderLayout.CENTER);
         topContainer.add(menuBar, BorderLayout.SOUTH);
         add(topContainer, BorderLayout.NORTH);
